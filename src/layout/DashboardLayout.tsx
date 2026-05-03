@@ -37,7 +37,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Sidebar */}
       <aside className="w-64 bg-slate-900 text-white flex flex-col shrink-0">
         <div className="p-6 border-b border-slate-800 flex items-center justify-between">
-          <h1 className="text-xl font-black tracking-tighter uppercase italic text-blue-500">OpenERP</h1>
+          <h1 className="text-xl font-black tracking-tighter uppercase italic text-blue-500">Tashkilot Boshqaruvi</h1>
           <button 
             onClick={() => setLang(lang === 'uz' ? 'ru' : 'uz')}
             className="p-2 bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-all flex items-center space-x-1"
