@@ -8,17 +8,25 @@ Professional organization management system.
 - [Node.js](https://nodejs.org/) (latest LTS version)
 - NPM or PNPM
 
-### Windows Server (PowerShell) Setup
+### Node.js Setup
 
-If Node.js is not installed, you can use PowerShell to install it:
+If Node.js is not installed, follow the instructions for your OS:
 
+#### Windows Server 2019/2022+ (PowerShell)
 1. **Open PowerShell as Administrator.**
 2. **Install Node.js (Winget):**
    ```powershell
    winget install OpenJS.NodeJS.LTS
    ```
    *(After installation, close and reopen PowerShell to refresh the PATH).*
-3. **Verify Installation:**
+
+#### Windows Server 2012 R2 / Legacy Windows
+1. Visit the [official Node.js website](https://nodejs.org/).
+2. Download the **LTS (Long Term Support)** Windows Installer (.msi file).
+3. Run the installer and follow the on-screen instructions (ensure "Add to PATH" option is checked).
+4. After installation, close and reopen your terminal.
+
+#### Verify Installation (All)
    ```powershell
    node -v
    npm -v

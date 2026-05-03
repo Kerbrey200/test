@@ -168,8 +168,9 @@ export default function Reports() {
               onImport={(data) => {
                  setReportItems(data.map(item => ({
                    materialId: item.materialId || '',
+                   name: item.name || '',
                    quantity: item.excelQty,
-                   unit: materials.find(m => m.id === item.materialId)?.unit || 'dona',
+                   unit: materials.find(m => m.id === item.materialId)?.unit || item.unit || 'dona',
                    excelName: item.name // Keep temporary name for UI display
                  })));
                  setShowExcelModal(false);

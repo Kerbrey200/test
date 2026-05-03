@@ -39,9 +39,12 @@ export default function ExcelImport({ onCompare, onImport, importLabel, material
           const rawData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as any[][];
           console.log('Raw Excel Rows:', rawData);
 
-          console.log(`DEBUG: Scanning ${rawData.length} rows for header.`, rawData.slice(0, 5));
+          // Robust header detection
+          let headerRowIndex = -1;
+          let maxHeaderScore = 0;
           
-          for (let i = 0; i < Math.min(rawData.length, 50); i++) {
+          // Scan top 30 rows for header
+          for (let i = 0; i < Math.min(rawData.length, 30); i++) {
               const row = rawData[i].map((c: any) => String(c || '').toLowerCase().trim());
               
               let score = 0;
@@ -55,19 +58,10 @@ export default function ExcelImport({ onCompare, onImport, importLabel, material
               }
           }
           
-          console.log(`DEBUG: headerRowIndex: ${headerRowIndex}, maxHeaderScore: ${maxHeaderScore}`);
+          if (headerRowIndex === -1) headerRowIndex = 0; // Fallback
           
-          if (headerRowIndex === -1) {
-              // Fallback: assume first row is header if none detected
-              headerRowIndex = 0;
-              console.log(`DEBUG: No header detected, fallback to row 0`);
-          }
+          const headers = rawData[headerRowIndex].map((h, i) => String(h || '').trim() || `col_${i}`);
           
-          // Extract headers
-          let headers = rawData[headerRowIndex].map((h, i) => String(h || '').trim() || `col_${i}`);
-          console.log(`DEBUG: Headers parsed:`, headers);
-          
-          // Data starts from next row
           const json = rawData.slice(headerRowIndex + 1).map(row => {
               const obj: any = {};
               headers.forEach((h: any, i: number) => {
@@ -75,6 +69,7 @@ export default function ExcelImport({ onCompare, onImport, importLabel, material
               });
               return obj;
           });
+          
           console.log(`DEBUG: JSON parsed:`, json.slice(0, 5));
           
           // Add data mapping
