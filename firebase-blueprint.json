@@ -1,0 +1,130 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "System user with specific role and object assignment.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "fullName": { "type": "string" },
+        "role": { "type": "string", "enum": ["ADMIN", "FOREMAN", "WAREHOUSE", "PTO", "CHIEF_ENGINEER", "ACCOUNTING", "SUPPLY", "MANAGEMENT"] },
+        "objectId": { "type": "string", "description": "ID of the construction site/project assigned to user" },
+        "email": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "fullName", "role"]
+    },
+    "Material": {
+      "title": "Material Definition",
+      "description": "Central catalog of materials.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "qrCodeData": { "type": "string" },
+        "unit": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "code", "unit"]
+    },
+    "Project": {
+      "title": "Construction Project",
+      "description": "Specific construction site or object.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name"]
+    },
+    "Requisition": {
+      "title": "Material Request",
+      "description": "Request for materials submitted by a foreman.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "objectId": { "type": "string" },
+        "requesterUid": { "type": "string" },
+        "items": { "type": "array" },
+        "status": { "type": "string", "enum": ["DRAFT", "PENDING_CHIEF", "PENDING_PTO", "PENDING_MGMT", "APPROVED", "REJECTED"] },
+        "history": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["objectId", "requesterUid", "items", "status"]
+    },
+    "TechnicalReport": {
+      "title": "Monthly Technical Report",
+      "description": "Summary of material usage and write-offs.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "objectId": { "type": "string" },
+        "foremanUid": { "type": "string" },
+        "month": { "type": "number" },
+        "year": { "type": "number" },
+        "items": { "type": "array" },
+        "status": { "type": "string", "enum": ["DRAFT", "PENDING_PTO", "PENDING_CHIEF", "APPROVED"] },
+        "ptoApproved": { "type": "boolean" },
+        "chiefApproved": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Waybill": {
+      "title": "Transfer Document",
+      "description": "Document for moving materials between users or warehouse.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fromUid": { "type": "string" },
+        "toUid": { "type": "string" },
+        "items": { "type": "array" },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Invoice": {
+      "title": "Purchase Invoice",
+      "description": "External purchase record entered by accounting.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "number": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "supplier": { "type": "string" },
+        "supplyOfficerUid": { "type": "string" },
+        "items": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Inventory": {
+      "title": "Current Stock",
+      "description": "Real-time material balance for a user or project.",
+      "type": "object",
+      "properties": {
+        "holderId": { "type": "string" },
+        "materialId": { "type": "string" },
+        "balance": { "type": "number" },
+        "totalReceived": { "type": "number" },
+        "totalUsed": { "type": "number" },
+        "lastUpdated": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": "User", "description": "System users" },
+    "/materials/{materialId}": { "schema": "Material", "description": "Master material catalog" },
+    "/projects/{projectId}": { "schema": "Project", "description": "Construction sites" },
+    "/requisitions/{reqId}": { "schema": "Requisition", "description": "Material requests workflow" },
+    "/reports/{reportId}": { "schema": "TechnicalReport", "description": "Foreman technical reports" },
+    "/waybills/{billId}": { "schema": "Waybill", "description": "Internal transfers" },
+    "/invoices/{invoiceId}": { "schema": "Invoice", "description": "Purchase records" },
+    "/inventory/{invId}": { "schema": "Inventory", "description": "Balance tracking" }
+  }
+}

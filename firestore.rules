@@ -1,0 +1,109 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function getUserData(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    function currentUser() {
+      return getUserData(request.auth.uid);
+    }
+
+    function hasRole(role) {
+      return isSignedIn() && currentUser().role == role;
+    }
+
+    function isAdmin() { return hasRole('ADMIN'); }
+    function isForeman() { return hasRole('FOREMAN'); }
+    function isWarehouse() { return hasRole('WAREHOUSE'); }
+    function isPTO() { return hasRole('PTO'); }
+    function isChief() { return hasRole('CHIEF_ENGINEER'); }
+    function isAccounting() { return hasRole('ACCOUNTING'); }
+    function isSupply() { return hasRole('SUPPLY'); }
+    function isManagement() { return hasRole('MANAGEMENT'); }
+
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 64 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // --- Collections ---
+
+    // Users
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && userId == request.auth.uid && 
+                   incoming().role in ['ADMIN', 'FOREMAN', 'WAREHOUSE', 'PTO', 'CHIEF_ENGINEER', 'ACCOUNTING', 'SUPPLY', 'MANAGEMENT'] &&
+                   incoming().fullName is string && incoming().fullName.size() < 100;
+      allow update: if (isAdmin() || (isSignedIn() && userId == request.auth.uid)) &&
+                   (!incoming().diff(existing()).affectedKeys().hasAny(['role']) || isAdmin());
+    }
+
+    // Materials
+    match /materials/{matId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Projects (Objects)
+    match /projects/{projId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Requisitions
+    match /requisitions/{reqId} {
+      allow read: if isSignedIn();
+      allow create: if isForeman() && incoming().requesterUid == request.auth.uid;
+      allow update: if isForeman() && existing().requesterUid == request.auth.uid && existing().status == 'DRAFT' ||
+                   (isChief() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'history', 'updatedAt'])) ||
+                   (isPTO() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'history', 'updatedAt', 'items'])) ||
+                   (isManagement() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'history', 'updatedAt']));
+    }
+
+    // Reports
+    match /reports/{repId} {
+      allow read: if isSignedIn();
+      allow create: if isForeman() && incoming().foremanUid == request.auth.uid;
+      allow update: if (isForeman() && existing().foremanUid == request.auth.uid && existing().status == 'DRAFT') ||
+                   (isPTO() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'ptoApproved', 'updatedAt', 'items'])) ||
+                   (isChief() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'chiefApproved', 'updatedAt'])) ||
+                   (isAccounting() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']));
+    }
+
+    // Waybills
+    match /waybills/{billId} {
+      allow read: if isSignedIn();
+      allow create: if isWarehouse() || isForeman() || isSupply();
+      allow update: if (existing().toUid == request.auth.uid && incoming().status == 'APPROVED');
+    }
+
+    // Invoices
+    match /invoices/{invId} {
+      allow read: if isSignedIn();
+      allow write: if isAccounting();
+    }
+
+    // Inventory
+    match /inventory/{invId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || isAccounting() || isSupply() || isWarehouse() || isForeman();
+    }
+  }
+}
