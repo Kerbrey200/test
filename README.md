@@ -8,21 +8,36 @@ Professional organization management system.
 - [Node.js](https://nodejs.org/) (latest LTS version)
 - NPM or PNPM
 
+### Windows Server (PowerShell) Setup
+
+If Node.js is not installed, you can use PowerShell to install it:
+
+1. **Open PowerShell as Administrator.**
+2. **Install Node.js (Winget):**
+   ```powershell
+   winget install OpenJS.NodeJS.LTS
+   ```
+   *(After installation, close and reopen PowerShell to refresh the PATH).*
+3. **Verify Installation:**
+   ```powershell
+   node -v
+   npm -v
+   ```
+
 ### 1. Installation
-```bash
+```powershell
 npm install
 ```
 
 ### 2. Environment Setup
 Copy `.env.example` to `.env` and configure your environment variables:
-```bash
-# Linux / Windows (Git Bash/PowerShell)
+```powershell
 cp .env.example .env
 # Edit .env and add required environment variables
 ```
 
 ### 3. Build
-```bash
+```powershell
 npm run build
 ```
 
@@ -45,16 +60,16 @@ To keep the application running in the background:
    ```
 
 #### On Windows Server
-1. **Using Command Prompt/PowerShell**:
+1. **Using PowerShell**:
    Open a terminal in the project directory and run:
-   ```bash
+   ```powershell
    npm start
    ```
    *(Note: This terminal must remain open. For production, consider using a service manager like NSSM to run it as a background service.)*
 
-2. **Using PM2 (Alternative)**:
+2. **Using PM2 (Alternative Rendering)**:
    PM2 is also supported on Windows.
-   ```bash
+   ```powershell
    npm install -g pm2
    pm2 start npm --name "tashkilot-boshqaruvi" -- start
    ```
