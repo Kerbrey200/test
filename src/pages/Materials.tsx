@@ -2,13 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { Material, UserRole, Inventory } from '../types';
-import { Plus, Search, Image as ImageIcon, X, FileSpreadsheet, Loader2, CheckCircle2 } from 'lucide-react';
+import { Plus, Search, Image as ImageIcon, X, FileSpreadsheet, Loader2, CheckCircle2, Package, Pencil, Trash2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import ExportButton from '../components/ExportButton';
 import ExcelImport from '../components/ExcelImport';
 import { DataService } from '../services/dataService';
 
 export default function Materials() {
+  const { profile } = useAuth();
+  const { t } = useLanguage();
   const [materials, setMaterials] = useState<Material[]>([]);
   const [inventory, setInventory] = useState<Inventory[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -16,8 +18,54 @@ export default function Materials() {
   const [showExcelModal, setShowExcelModal] = useState(false);
   const [importing, setImporting] = useState(false);
   const [newMaterial, setNewMaterial] = useState({ name: '', code: '', unit: '', photoUrl: '' });
-  const { profile } = useAuth();
-  const { t } = useLanguage();
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  
+  // Edit/Delete states
+  const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
+  
+  type SortKey = 'name' | 'code' | 'balance';
+  const [sortKey, setSortKey] = useState<SortKey>('name');
+  const [sortAsc, setSortAsc] = useState(true);
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  const handleEditMaterial = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingMaterial) return;
+    try {
+      await DataService.updateInCollection('materials', editingMaterial.id, {
+        name: editingMaterial.name,
+        code: editingMaterial.code,
+        unit: editingMaterial.unit,
+        photoUrl: editingMaterial.photoUrl,
+      });
+      setEditingMaterial(null);
+      showToast('Material muvaffaqiyatli yangilandi');
+      await reloadData();
+    } catch {
+      showToast('Yangilashda xatolik', 'error');
+    }
+  };
+
+  const handleDeleteMaterial = async (materialId: string, materialName: string) => {
+    setConfirmDelete({ id: materialId, name: materialName });
+  };
+
+  const confirmDeleteMaterial = async () => {
+    if (!confirmDelete) return;
+    try {
+      await DataService.removeFromCollection('materials', confirmDelete.id);
+      setConfirmDelete(null);
+      showToast(`"${confirmDelete.name}" o'chirildi`);
+      await reloadData();
+    } catch {
+      showToast('O\'chirishda xatolik', 'error');
+    }
+  };
 
   const reloadData = async () => {
     const matData = await DataService.getCollection('materials');
@@ -119,17 +167,68 @@ export default function Materials() {
   };
 
   const getBalance = (materialId: string) => {
-    const item = inventory.find(i => i.materialId === materialId);
-    return item ? item.balance : 0;
+    return inventory
+      .filter(i => i.materialId === materialId)
+      .reduce((sum, i) => sum + (i.balance || 0), 0);
   };
 
-  const filteredMaterials = materials.filter(m => 
-    m.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    m.code.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) setSortAsc(!sortAsc);
+    else { setSortKey(key); setSortAsc(true); }
+  };
+
+  const sortedMaterials = [...materials]
+    .filter(m => 
+      m.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      m.code.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+    .sort((a, b) => {
+      let av: any, bv: any;
+      if (sortKey === 'balance') { av = getBalance(a.id); bv = getBalance(b.id); }
+      else { av = a[sortKey].toLowerCase(); bv = b[sortKey].toLowerCase(); }
+      return sortAsc ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+    });
+
+  const UNITS = ['kg', 'tonna', 'litr', 'm', 'm²', 'm³', 'dona', 'qop', 'metr', 'sm', 'mm'];
 
   return (
     <div className="space-y-6">
+      {/*... toast ...*/}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={() => setConfirmDelete(null)} />
+          <div className="relative bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl text-center">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Trash2 className="w-8 h-8 text-red-500" />
+            </div>
+            <h3 className="text-xl font-black uppercase tracking-tighter">O'chirish?</h3>
+            <p className="text-slate-500 text-sm mt-2 mb-6">
+              <span className="font-bold text-slate-800">"{confirmDelete.name}"</span> materialini tizimdan butunlay o'chirmoqchimisiz?
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setConfirmDelete(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-2xl font-black text-xs uppercase">Bekor qilish</button>
+              <button onClick={confirmDeleteMaterial} className="flex-1 py-3 bg-red-600 text-white rounded-2xl font-black text-xs uppercase shadow-lg shadow-red-100">Ha, o'chirish</button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {editingMaterial && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={() => setEditingMaterial(null)} />
+          <div className="relative bg-white rounded-[2.5rem] shadow-2xl p-10 w-full max-w-md border-t-8 border-blue-600">
+            <h2 className="text-3xl font-black uppercase tracking-tighter italic mb-6">Materialni tahrirlash</h2>
+             <form onSubmit={handleEditMaterial} className="space-y-6">
+               <input type="text" value={editingMaterial.name} onChange={(e) => setEditingMaterial({...editingMaterial, name: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold" />
+               <input type="text" value={editingMaterial.code} onChange={(e) => setEditingMaterial({...editingMaterial, code: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold" />
+               <select value={editingMaterial.unit} onChange={(e) => setEditingMaterial({...editingMaterial, unit: e.target.value})} className="w-full px-5 py-3 bg-slate-50 border rounded-2xl font-bold">
+                 {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+               </select>
+               <button type="submit" className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs">Saqlash</button>
+             </form>
+          </div>
+        </div>
+      )}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-black text-slate-900 tracking-tighter uppercase italic">{t('materials')}</h1>
@@ -156,7 +255,7 @@ export default function Materials() {
             </>
           )}
           <ExportButton 
-            data={filteredMaterials.map(m => ({ 'Kod': m.code, 'Nomi': m.name, 'O\'lchov': m.unit, 'Qoldiql': getBalance(m.id) }))} 
+            data={sortedMaterials.map(m => ({ 'Kod': m.code, 'Nomi': m.name, 'O\'lchov': m.unit, 'Qoldiq': getBalance(m.id) }))} 
             headers={['Kod', 'Nomi', 'O\'lchov', 'Qoldiq']} 
             title={t('materials')} 
             filename="materials_list" 
@@ -164,19 +263,33 @@ export default function Materials() {
         </div>
       </div>
 
-      <div className="relative group">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 group-focus-within:text-blue-500 transition-colors" />
-        <input 
-          type="text" 
-          placeholder={t('materials') + "..."} 
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-[1.25rem] focus:ring-4 focus:ring-blue-50 outline-none transition-all font-medium shadow-sm"
-        />
+      <div className="flex flex-col md:flex-row gap-4 items-center">
+        <div className="relative group flex-1 w-full">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 group-focus-within:text-blue-500 transition-colors" />
+          <input 
+            type="text" 
+            placeholder={t('materials') + "..."} 
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-[1.25rem] focus:ring-4 focus:ring-blue-50 outline-none transition-all font-medium shadow-sm"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-400 font-bold uppercase">Tartib:</span>
+          {(['name', 'code', 'balance'] as SortKey[]).map(key => (
+            <button key={key}
+              onClick={() => handleSort(key)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all
+                ${sortKey === key ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+              {key === 'name' ? 'Nomi' : key === 'code' ? 'Kod' : 'Qoldiq'}
+              {sortKey === key && (sortAsc ? ' ↑' : ' ↓')}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {filteredMaterials.map((material) => (
+        {sortedMaterials.map((material) => (
           <div key={material.id} className="bg-white border border-slate-100 rounded-[2rem] overflow-hidden shadow-sm hover:shadow-xl hover:scale-[1.02] transition-all group">
             <div className="h-48 bg-slate-50 flex items-center justify-center relative overflow-hidden">
               {material.photoUrl ? (
@@ -189,17 +302,26 @@ export default function Materials() {
               <div className="absolute top-4 right-4 bg-white/90 backdrop-blur p-3 rounded-2xl shadow-xl group-hover:rotate-6 transition-transform">
                 <QRCodeSVG value={`MAT-${material.code}`} size={48} />
               </div>
-              <div className="absolute bottom-4 left-4">
-                <span className="px-3 py-1 bg-slate-900 shadow-xl text-white rounded-lg text-[10px] font-black uppercase tracking-tighter">
-                  {getBalance(material.id)} {material.unit}
+            </div>
+            
+            <div className="p-5">
+              <h3 className="text-base font-black text-slate-800 leading-tight uppercase italic tracking-tighter mb-1 truncate">
+                {material.name}
+              </h3>
+              <div className="flex items-center gap-2 mb-4">
+                <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded-md text-[10px] font-black uppercase">
+                  #{material.code}
+                </span>
+                <span className="px-2 py-0.5 bg-blue-50 text-blue-500 rounded-md text-[10px] font-black uppercase">
+                  {material.unit}
                 </span>
               </div>
-            </div>
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-3">
-                <span className="px-2 py-1 bg-slate-100 text-slate-500 rounded-lg text-[10px] font-black uppercase tracking-tighter">Kod: {material.code}</span>
+              <div className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-2">
+                <span className="text-[10px] text-slate-400 font-black uppercase">Qoldiq</span>
+                <span className={`text-lg font-black ${getBalance(material.id) === 0 ? 'text-red-500' : 'text-slate-800'}`}>
+                  {getBalance(material.id)} <span className="text-xs font-bold text-slate-400">{material.unit}</span>
+                </span>
               </div>
-              <h3 className="text-lg font-black text-slate-800 leading-tight uppercase italic tracking-tighter">{material.name}</h3>
             </div>
           </div>
         ))}
@@ -266,13 +388,13 @@ export default function Materials() {
                 </div>
                 <div className="w-24">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Birlik</label>
-                  <input 
-                    type="text" required
+                  <select 
                     value={newMaterial.unit}
                     onChange={(e) => setNewMaterial({...newMaterial, unit: e.target.value})}
                     className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-bold focus:bg-white focus:ring-4 focus:ring-blue-50 transition-all"
-                    placeholder="kg, m2, litr"
-                  />
+                  >
+                    {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
                 </div>
               </div>
               <div>
