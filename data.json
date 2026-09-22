@@ -7,6 +7,62 @@
       "password": "123456",
       "role": "ADMIN",
       "createdAt": "2026-05-02T17:43:53Z"
+    },
+    {
+      "uid": "demo-foreman",
+      "fullName": "Demo Prorab",
+      "email": "prorab@demo.uz",
+      "password": "123456",
+      "role": "FOREMAN",
+      "createdAt": "2026-09-22T00:00:00Z"
+    },
+    {
+      "uid": "demo-warehouse",
+      "fullName": "Demo Sklad",
+      "email": "sklad@demo.uz",
+      "password": "123456",
+      "role": "WAREHOUSE",
+      "createdAt": "2026-09-22T00:00:00Z"
+    },
+    {
+      "uid": "demo-supply",
+      "fullName": "Demo Snabjeniye",
+      "email": "snab@demo.uz",
+      "password": "123456",
+      "role": "SUPPLY",
+      "createdAt": "2026-09-22T00:00:00Z"
+    },
+    {
+      "uid": "demo-pto",
+      "fullName": "Demo PTO",
+      "email": "pto@demo.uz",
+      "password": "123456",
+      "role": "PTO",
+      "createdAt": "2026-09-22T00:00:00Z"
+    },
+    {
+      "uid": "demo-chief",
+      "fullName": "Demo Bosh muhandis",
+      "email": "muhandis@demo.uz",
+      "password": "123456",
+      "role": "CHIEF_ENGINEER",
+      "createdAt": "2026-09-22T00:00:00Z"
+    },
+    {
+      "uid": "demo-accounting",
+      "fullName": "Demo Buxgalteriya",
+      "email": "buxgalter@demo.uz",
+      "password": "123456",
+      "role": "ACCOUNTING",
+      "createdAt": "2026-09-22T00:00:00Z"
+    },
+    {
+      "uid": "demo-management",
+      "fullName": "Demo Rahbariyat",
+      "email": "rahbar@demo.uz",
+      "password": "123456",
+      "role": "MANAGEMENT",
+      "createdAt": "2026-09-22T00:00:00Z"
     }
   ],
   "materials": [],

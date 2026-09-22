@@ -41,48 +41,64 @@ export default function Reports() {
 
   const addItem = () => {
     const mat = materials.find(m => m.id === currentMatId);
-    if (!mat || currentQty <= 0) return;
+    if (!mat || !(currentQty > 0)) return;
     setReportItems([...reportItems, { materialId: mat.id, name: mat.name, quantity: currentQty, unit: mat.unit }]);
     setCurrentMatId('');
     setCurrentQty(0);
   };
 
-  const handleCreate = async () => {
-    const profileId = profile?.uid || (profile as any).id;
-    if (!profileId || !selectedProjectId || reportItems.length === 0) return;
-    
-    await DataService.addToCollection('reports', {
-      objectId: selectedProjectId,
-      foremanUid: profileId,
-      month,
-      year,
-      items: reportItems,
-      status: ReportStatus.PENDING_PTO,
-      ptoApproved: false,
-      chiefApproved: false
-    });
-    setShowAddModal(false);
-    setReportItems([]);
-    reloadData();
-  };
+  const myId = profile?.uid || '';
 
-  const approveReport = async (report: TechnicalReport) => {
-    if (!profile) return;
-    
+  const handleCreate = async () => {
+    if (!myId) return;
+    if (!selectedProjectId) return alert('Obyektni tanlang');
+    if (reportItems.length === 0) return alert('Kamida bitta material qo\'shing');
+    if (reportItems.some(i => !i.materialId)) return alert('Barcha qatorlarni tizimdagi materialga bog\'lang');
+    if (reportItems.some(i => !(i.quantity > 0))) return alert('Miqdor 0 dan katta bo\'lishi kerak');
+
+    const duplicate = reports.find(r => r.foremanUid === myId && r.objectId === selectedProjectId && r.month === month && r.year === year);
+    if (duplicate) return alert(`${month}/${year} davri uchun bu obyektga hisobot allaqachon mavjud`);
+
     try {
-      if (profile.role === UserRole.PTO) {
-        await DataService.updateInCollection('reports', report.id, { ptoApproved: true, status: ReportStatus.PENDING_CHIEF });
-      } else if (profile.role === UserRole.CHIEF_ENGINEER || profile.role === UserRole.ADMIN) {
-        await DataService.updateInCollection('reports', report.id, { chiefApproved: true, status: ReportStatus.APPROVED });
-        await DataService.approveTechReport(report);
-      } else if (profile.role === UserRole.ACCOUNTING) {
-        await DataService.approveTechReport(report);
-      }
+      await DataService.addToCollection('reports', {
+        objectId: selectedProjectId,
+        foremanUid: myId,
+        month,
+        year,
+        items: reportItems.map(({ excelName, ...item }) => item),
+        status: ReportStatus.PENDING_PTO,
+        ptoApproved: false,
+        chiefApproved: false
+      });
+      setShowAddModal(false);
+      setReportItems([]);
+      setSelectedProjectId('');
       reloadData();
     } catch (err: any) {
       alert('Xatolik: ' + err.message);
     }
   };
+
+  const canApprove = (report: TechnicalReport) => {
+    if (!profile) return false;
+    if (report.status === ReportStatus.PENDING_PTO) return profile.role === UserRole.PTO || profile.role === UserRole.ADMIN;
+    if (report.status === ReportStatus.PENDING_CHIEF) return profile.role === UserRole.CHIEF_ENGINEER || profile.role === UserRole.ADMIN;
+    return false;
+  };
+
+  const approveReport = async (report: TechnicalReport) => {
+    if (!canApprove(report)) return;
+    try {
+      await DataService.approveReport(report.id, myId);
+      reloadData();
+    } catch (err: any) {
+      alert('Xatolik: ' + err.message);
+    }
+  };
+
+  const visibleReports = profile?.role === UserRole.FOREMAN
+    ? reports.filter(r => r.foremanUid === myId)
+    : reports;
 
   return (
     <div className="space-y-6">
@@ -112,7 +128,7 @@ export default function Reports() {
             </button>
           )}
           <ExportButton 
-            data={reports.map(r => ({ 'Obyekt': projects.find(p => p.id === r.objectId)?.name, 'Muddat': `${r.month}/${r.year}`, 'Status': r.status }))} 
+            data={visibleReports.map(r => ({ 'Obyekt': projects.find(p => p.id === r.objectId)?.name, 'Muddat': `${r.month}/${r.year}`, 'Status': r.status }))} 
             headers={['Obyekt', 'Muddat', 'Status']} 
             title={t('reports')} 
             filename="tech_reports_m29" 
@@ -121,7 +137,7 @@ export default function Reports() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {reports.map((report) => (
+        {visibleReports.map((report) => (
           <div key={report.id} className="bg-white border border-slate-100 rounded-[2rem] p-8 shadow-sm hover:shadow-xl transition-all flex flex-col group relative overflow-hidden">
             <div className="absolute top-0 right-0 w-24 h-24 bg-orange-50/50 rounded-bl-[3rem] -mr-12 -mt-12 group-hover:scale-150 transition-all"></div>
             <div className="flex items-center justify-between mb-6 relative z-10">
@@ -146,12 +162,15 @@ export default function Reports() {
                  <div className={`w-10 h-10 rounded-2xl border-4 border-white flex items-center justify-center text-[10px] font-black shadow-lg ${report.chiefApproved ? 'bg-green-500 text-white' : 'bg-slate-200 text-slate-500'}`} title="GI">GI</div>
               </div>
               
-              <button 
-                onClick={() => approveReport(report)}
-                className="bg-blue-600 text-white p-3 rounded-2xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 active:scale-90"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
+              {canApprove(report) && (
+                <button
+                  onClick={() => approveReport(report)}
+                  title="Tasdiqlash"
+                  className="bg-blue-600 text-white p-3 rounded-2xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 active:scale-90"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              )}
             </div>
           </div>
         ))}
@@ -163,7 +182,7 @@ export default function Reports() {
           <div className="relative w-full max-w-2xl transform transition-all">
             <ExcelImport 
               materials={materials} 
-              inventory={inventory} 
+              inventory={inventory.filter(i => i.holderId === myId)}
               onCompare={() => {}} 
               onImport={(data) => {
                  setReportItems(data.map(item => ({

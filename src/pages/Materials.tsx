@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
-import { Material, UserRole, Inventory } from '../types';
+import { Material, UserRole, Inventory, UserProfile } from '../types';
 import { Plus, Search, Image as ImageIcon, X, FileSpreadsheet, Loader2, CheckCircle2, Package, Pencil, Trash2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import ExportButton from '../components/ExportButton';
@@ -17,7 +17,9 @@ export default function Materials() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showExcelModal, setShowExcelModal] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [newMaterial, setNewMaterial] = useState({ name: '', code: '', unit: '', photoUrl: '' });
+  const [newMaterial, setNewMaterial] = useState({ name: '', code: '', unit: 'dona', photoUrl: '' });
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [stockHolderId, setStockHolderId] = useState('');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   
   // Edit/Delete states
@@ -36,6 +38,7 @@ export default function Materials() {
   const handleEditMaterial = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingMaterial) return;
+    if (codeTaken(editingMaterial.code, editingMaterial.id)) return showToast('Bu kod boshqa materialda bor', 'error');
     try {
       await DataService.updateInCollection('materials', editingMaterial.id, {
         name: editingMaterial.name,
@@ -62,105 +65,93 @@ export default function Materials() {
       setConfirmDelete(null);
       showToast(`"${confirmDelete.name}" o'chirildi`);
       await reloadData();
-    } catch {
-      showToast('O\'chirishda xatolik', 'error');
+    } catch (err: any) {
+      setConfirmDelete(null);
+      showToast(err.message || 'O\'chirishda xatolik', 'error');
     }
   };
 
   const reloadData = async () => {
-    const matData = await DataService.getCollection('materials');
-    const invData = await DataService.getCollection('inventory');
+    const [matData, invData, userData] = await Promise.all([
+      DataService.getCollection('materials'),
+      DataService.getCollection('inventory'),
+      DataService.getCollection('users'),
+    ]);
     setMaterials(matData);
     setInventory(invData);
+    setUsers(userData);
   };
 
   useEffect(() => {
     reloadData();
   }, []);
 
+  const codeTaken = (code: string, exceptId?: string) =>
+    materials.some(m => m.id !== exceptId && m.code?.trim().toLowerCase() === code.trim().toLowerCase());
+
+  const stockHolders = users.filter(u => u.role === UserRole.WAREHOUSE || u.role === UserRole.SUPPLY);
+
   const handleAddMaterial = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile || profile.role !== UserRole.ADMIN) return;
-    
+    if (codeTaken(newMaterial.code)) return showToast('Bu kod bilan material allaqachon mavjud', 'error');
+
     try {
       await DataService.addToCollection('materials', {
         ...newMaterial,
         qrCodeData: `MAT-${newMaterial.code}`,
       });
       setShowAddModal(false);
-      setNewMaterial({ name: '', code: '', unit: '', photoUrl: '' });
+      setNewMaterial({ name: '', code: '', unit: 'dona', photoUrl: '' });
       reloadData();
-    } catch (error) {
-      console.error('Error adding material:', error);
+    } catch (err: any) {
+      showToast(err.message || 'Saqlashda xatolik', 'error');
     }
   };
 
   const handleExcelImport = async (data: any[]) => {
     if (!profile || profile.role !== UserRole.ADMIN) return;
+    if (!stockHolderId) return alert('Qoldiqlar kimning hisobiga yozilishini tanlang');
     setImporting(true);
-    
+
     try {
       let addedCount = 0;
-      let updatedInventoryCount = 0;
+      const known = [...materials];
+      const stockItems: { materialId: string; name: string; quantity: number; unit: string }[] = [];
 
       for (const item of data) {
-        // Find existing material by code or name
-        let matchedMaterial = materials.find(m => 
+        let material = (item.materialId && known.find(m => m.id === item.materialId)) || known.find(m =>
           (m.code && item.code && m.code.toLowerCase() === item.code.toLowerCase()) ||
-          (m.name.toLowerCase() === item.name.toLowerCase())
+          m.name.toLowerCase() === item.name.toLowerCase()
         );
 
-        let materialId = matchedMaterial?.id;
-
-        // 1. Create material if it doesn't exist
-        if (!matchedMaterial) {
-          const res = await DataService.addToCollection('materials', {
+        if (!material) {
+          const code = item.code || `X-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+          material = await DataService.addToCollection('materials', {
             name: item.name,
-            code: item.code || `X-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
+            code,
             unit: item.unit || 'dona',
             photoUrl: '',
-            qrCodeData: `MAT-${item.code || 'TEMP'}`
+            qrCodeData: `MAT-${code}`
           });
-          materialId = res.id;
+          known.push(material!);
           addedCount++;
         }
 
-        // 2. Initialize or Update Inventory if qty is provided
-        if (materialId && item.excelQty > 0) {
-          const invItem = inventory.find(i => i.materialId === materialId && i.holderId === 'warehouse');
-          
-          if (!invItem) {
-            // Create new inventory record for Main Warehouse
-            await DataService.addToCollection('inventory', {
-              materialId,
-              holderId: 'warehouse',
-              name: item.name,
-              balance: item.excelQty,
-              totalReceived: item.excelQty,
-              totalUsed: 0,
-              unit: item.unit || 'dona',
-              lastUpdated: new Date().toISOString()
-            });
-            updatedInventoryCount++;
-          } else {
-            // Update existing inventory balance (Add to it)
-            await DataService.updateInCollection('inventory', invItem.id, {
-              ...invItem,
-              balance: invItem.balance + item.excelQty,
-              totalReceived: invItem.totalReceived + item.excelQty,
-              lastUpdated: new Date().toISOString()
-            });
-            updatedInventoryCount++;
-          }
+        if (item.excelQty > 0) {
+          stockItems.push({ materialId: material!.id, name: material!.name, quantity: item.excelQty, unit: material!.unit });
         }
       }
-      
+
+      if (stockItems.length) await DataService.addStock(stockHolderId, stockItems);
+
       setShowExcelModal(false);
       await reloadData();
-      alert(`Import yakunlandi!\nYangi materiallar: ${addedCount}\nInventar yangilandi: ${updatedInventoryCount}`);
-    } catch (error) {
-      console.error('Import error:', error);
-      alert('Import qilishda xatolik yuz berdi');
+      alert(`Import yakunlandi!\nYangi materiallar: ${addedCount}\nKirim qilingan pozitsiyalar: ${stockItems.length}`);
+    } catch (err: any) {
+      console.error('Import error:', err);
+      alert('Import qilishda xatolik: ' + err.message);
+      await reloadData();
     } finally {
       setImporting(false);
     }
@@ -193,7 +184,12 @@ export default function Materials() {
 
   return (
     <div className="space-y-6">
-      {/*... toast ...*/}
+      {toast && (
+        <div className={`fixed top-6 right-6 z-[60] flex items-center gap-2 px-5 py-3 rounded-2xl shadow-2xl font-bold text-sm text-white ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
+          {toast.type === 'success' && <CheckCircle2 className="w-4 h-4" />}
+          <span>{toast.message}</span>
+        </div>
+      )}
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onClick={() => setConfirmDelete(null)} />
@@ -305,9 +301,21 @@ export default function Materials() {
             </div>
             
             <div className="p-5">
-              <h3 className="text-base font-black text-slate-800 leading-tight uppercase italic tracking-tighter mb-1 truncate">
-                {material.name}
-              </h3>
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <h3 className="text-base font-black text-slate-800 leading-tight uppercase italic tracking-tighter truncate">
+                  {material.name}
+                </h3>
+                {profile?.role === UserRole.ADMIN && (
+                  <div className="flex shrink-0 gap-1">
+                    <button onClick={() => setEditingMaterial(material)} title="Tahrirlash" className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-all">
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => handleDeleteMaterial(material.id, material.name)} title="O'chirish" className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
               <div className="flex items-center gap-2 mb-4">
                 <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded-md text-[10px] font-black uppercase">
                   #{material.code}
@@ -345,7 +353,18 @@ export default function Materials() {
                   </div>
                   <button onClick={() => setShowExcelModal(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X className="w-6 h-6 text-slate-400" /></button>
                 </div>
-                <ExcelImport 
+                <div className="mb-4">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Qoldiqlar kimning hisobiga kirim qilinadi</label>
+                  <select
+                    value={stockHolderId}
+                    onChange={(e) => setStockHolderId(e.target.value)}
+                    className="w-full px-5 py-3 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-bold focus:bg-white focus:ring-4 focus:ring-blue-50 transition-all"
+                  >
+                    <option value="">{stockHolders.length ? 'Tanlang...' : 'Avval Sklad yoki Snabjeniye rolidagi xodim qo\'shing'}</option>
+                    {stockHolders.map(u => <option key={u.uid || (u as any).id} value={u.uid || (u as any).id}>{u.fullName} ({t(u.role as any)})</option>)}
+                  </select>
+                </div>
+                <ExcelImport
                   materials={materials}
                   inventory={inventory}
                   onCompare={() => {}}

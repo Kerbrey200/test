@@ -20,12 +20,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   const menuItems = [
-    { label: t('materials'), path: '/materials', icon: Package, roles: [UserRole.ADMIN, UserRole.FOREMAN, UserRole.WAREHOUSE, UserRole.PTO, UserRole.ACCOUNTING, UserRole.SUPPLY, UserRole.MANAGEMENT] },
+    { label: t('materials'), path: '/materials', icon: Package, roles: [UserRole.ADMIN, UserRole.FOREMAN, UserRole.WAREHOUSE, UserRole.PTO, UserRole.CHIEF_ENGINEER, UserRole.ACCOUNTING, UserRole.SUPPLY, UserRole.MANAGEMENT] },
     { label: t('users'), path: '/users', icon: Users, roles: [UserRole.ADMIN] },
-    { label: t('requisitions'), path: '/requisitions', icon: ClipboardList, roles: [UserRole.FOREMAN, UserRole.PTO, UserRole.CHIEF_ENGINEER, UserRole.SUPPLY, UserRole.MANAGEMENT] },
+    { label: t('projects'), path: '/projects', icon: Building, roles: [UserRole.ADMIN] },
+    { label: t('requisitions'), path: '/requisitions', icon: ClipboardList, roles: [UserRole.ADMIN, UserRole.FOREMAN, UserRole.PTO, UserRole.CHIEF_ENGINEER, UserRole.SUPPLY, UserRole.MANAGEMENT] },
     { label: t('reports'), path: '/reports', icon: FileText, roles: [UserRole.ADMIN, UserRole.FOREMAN, UserRole.PTO, UserRole.CHIEF_ENGINEER, UserRole.ACCOUNTING] },
-    { label: t('waybills'), path: '/waybills', icon: ArrowLeftRight, roles: [UserRole.FOREMAN, UserRole.WAREHOUSE] },
-    { label: t('inventory'), path: '/inventory', icon: LayoutDashboard, roles: [UserRole.CHIEF_ENGINEER] },
+    { label: t('waybills'), path: '/waybills', icon: ArrowLeftRight, roles: [UserRole.ADMIN, UserRole.FOREMAN, UserRole.WAREHOUSE, UserRole.SUPPLY] },
+    { label: t('inventory'), path: '/inventory', icon: LayoutDashboard, roles: [UserRole.ADMIN, UserRole.CHIEF_ENGINEER] },
     { label: t('invoices'), path: '/invoices', icon: Inbox, roles: [UserRole.SUPPLY] },
   ];
 

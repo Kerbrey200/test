@@ -81,13 +81,18 @@ export default function ExcelImport({ onCompare, onImport, importLabel, material
                 ? materials.find(m => m.code && normalize(m.code) === normalize(excelCode))
                 : null;
             
-            if (!matchedMaterial && excelName) {
-                const normExcelName = normalize(excelName);
-                matchedMaterial = materials.find(m => normalize(m.name).includes(normExcelName) || normExcelName.includes(normalize(m.name)));
+            const normExcelName = normalize(excelName);
+            if (!matchedMaterial && normExcelName.length > 2) {
+                matchedMaterial = materials.find(m => normalize(m.name) === normExcelName)
+                  || materials.find(m => {
+                    const normName = normalize(m.name);
+                    return normName.length > 2 && (normName.includes(normExcelName) || normExcelName.includes(normName));
+                  });
             }
 
-            const systemInv = matchedMaterial ? inventory.find(i => i.materialId === matchedMaterial.id) : null;
-            const systemQty = systemInv ? systemInv.balance : 0;
+            const systemQty = matchedMaterial
+              ? inventory.filter(i => i.materialId === matchedMaterial.id).reduce((sum, i) => sum + (i.balance || 0), 0)
+              : 0;
 
             return {
               name: excelName,
@@ -96,7 +101,7 @@ export default function ExcelImport({ onCompare, onImport, importLabel, material
               excelUnit,
               systemQty,
               matched: !!matchedMaterial,
-              diff: excelQty - (systemQty || 0),
+              diff: excelQty - systemQty,
               materialId: matchedMaterial?.id,
               unit: matchedMaterial?.unit || excelUnit || 'dona',
             };

@@ -22,12 +22,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const saveProfile = (user: any) => {
+    const normalized = { ...user, uid: user.uid || user.id };
+    setProfile(normalized);
+    localStorage.setItem('erp_user', JSON.stringify(normalized));
+  };
+
   useEffect(() => {
     const savedUser = localStorage.getItem('erp_user');
-    if (savedUser) {
-      setProfile(JSON.parse(savedUser));
+    if (!savedUser) {
+      setLoading(false);
+      return;
     }
-    setLoading(false);
+    const cached = JSON.parse(savedUser);
+    // The cached copy goes stale when an admin changes this user's role or object, so re-read it.
+    fetch(`/api/auth/me/${cached.uid || cached.id}`)
+      .then(async res => {
+        if (res.ok) {
+          saveProfile((await res.json()).user);
+        } else if (res.status === 404) {
+          setProfile(null);
+          localStorage.removeItem('erp_user');
+        } else {
+          setProfile(cached);
+        }
+      })
+      .catch(() => setProfile(cached))
+      .finally(() => setLoading(false));
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -35,8 +56,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       method: 'POST',
       body: JSON.stringify({ email, password })
     });
-    setProfile(data.user);
-    localStorage.setItem('erp_user', JSON.stringify(data.user));
+    saveProfile(data.user);
   };
 
   const logout = () => {
