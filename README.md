@@ -28,8 +28,13 @@ Barcha foydalanuvchilar `data.json` faylida saqlanadi. Hamma demo akkauntlarning
 
 ## Deployment Instructions
 
+> **Vercel / Netlify kabi statik yoki serverless hostinglarda ishlamaydi.** Ilova doimiy ishlab turadigan
+> Node.js serveri (`server.ts`) va diskdagi `data.json` fayliga tayanadi. Vercel faqat frontendni joylaydi,
+> shuning uchun login `"The page could not be found"... is not valid JSON` xatosini beradi, ma'lumotlar ham saqlanmaydi.
+> Doimiy serverdan foydalaning: Windows Server, Linux VPS yoki doimiy diskli (volume) Railway / Render / Fly.io.
+
 ### Prerequisites
-- [Node.js](https://nodejs.org/) (latest LTS version)
+- [Node.js](https://nodejs.org/) 22.18 yoki undan yangi (tavsiya: eng so'nggi LTS)
 - NPM or PNPM
 
 ### Node.js Setup
@@ -68,10 +73,21 @@ cp .env.example .env
 # Edit .env and add required environment variables
 ```
 
+| O'zgaruvchi | Vazifasi |
+|---|---|
+| `PORT` | Server porti (standart `3000`) |
+| `DATA_FILE` | Ishchi ma'lumotlar fayli. Loyiha papkasidan **tashqarida** bo'lishi tavsiya etiladi (masalan `C:\tashkilot-data\data.json`), shunda `git pull` ma'lumotlarni hech qachon ustiga yozmaydi. Birinchi ishga tushishda repodagi `data.json` (demo foydalanuvchilar) nusxalanadi. Ko'rsatilmasa, loyiha ichidagi `data.json` ishlatiladi. |
+
+> Railway / Render / Fly.io'da `DATA_FILE` ni ulangan doimiy diskka (volume) yo'naltiring, masalan `/data/data.json`,
+> aks holda har qayta deploy'da ma'lumotlar o'chib ketadi.
+
 ### 3. Build
 ```powershell
 npm run build
 ```
+
+`npm start` production rejimida `dist/` ni beradi, shuning uchun har kod yangilanishidan keyin avval `npm run build` qiling.
+Ishlab chiqish (development) uchun: `npm run dev`.
 
 ### 4. Running the Application
 
@@ -106,4 +122,4 @@ To keep the application running in the background:
    pm2 start npm --name "tashkilot-boshqaruvi" -- start
    ```
 
-The application will run on port 3000.
+The application will run on port `PORT` (default 3000).

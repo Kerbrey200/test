@@ -1,5 +1,5 @@
+import "dotenv/config";
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -7,7 +7,16 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DATA_FILE = path.join(__dirname, "data.json");
+const IS_PRODUCTION = process.env.NODE_ENV === "production" || process.argv.includes("--production");
+const PORT = Number(process.env.PORT) || 3000;
+
+// The repo's data.json is only the initial seed; DATA_FILE lets live data sit outside the repo so `git pull` never clashes with it.
+const SEED_FILE = path.join(__dirname, "data.json");
+const DATA_FILE = process.env.DATA_FILE ? path.resolve(process.env.DATA_FILE) : SEED_FILE;
+if (!fs.existsSync(DATA_FILE)) {
+  fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
+  fs.copyFileSync(SEED_FILE, DATA_FILE);
+}
 
 const COLLECTIONS = ["users", "materials", "projects", "requisitions", "reports", "waybills", "invoices", "inventory"];
 
@@ -158,7 +167,6 @@ function assertUniqueEmail(data: any, email: string, exceptId?: string) {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
 
   app.use(express.json());
 
@@ -327,23 +335,31 @@ async function startServer() {
     return { success: true, count: validItems.length };
   }));
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
+  app.all("/api/*", (req, res) => {
+    res.status(404).json({ message: "API topilmadi" });
+  });
+
+  if (IS_PRODUCTION) {
+    const distPath = path.join(__dirname, "dist");
+    if (!fs.existsSync(path.join(distPath, "index.html"))) {
+      console.error("dist/ topilmadi — avval `npm run build` bajaring.");
+      process.exit(1);
+    }
+    app.use(express.static(distPath));
+    app.get("*", (req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
+    });
+  } else {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on http://localhost:${PORT} (${IS_PRODUCTION ? "production" : "development"}), data: ${DATA_FILE}`);
   });
 }
 
