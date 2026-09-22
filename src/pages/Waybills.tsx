@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Waybill, Material, UserProfile } from '../types';
+import { Waybill, Material, UserProfile, Inventory, UserRole } from '../types';
 import { ArrowLeftRight, Plus, CheckCircle2, User, Box, X } from 'lucide-react';
 import { DataService } from '../services/dataService';
 
@@ -8,6 +8,7 @@ export default function Waybills() {
   const [waybills, setWaybills] = useState<Waybill[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [inventory, setInventory] = useState<Inventory[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const { profile } = useAuth();
 
@@ -16,41 +17,85 @@ export default function Waybills() {
   const [quantity, setQuantity] = useState(0);
 
   const reloadData = async () => {
-    const wayL = await DataService.getCollection('waybills');
-    const matL = await DataService.getCollection('materials');
-    const userL = await DataService.getCollection('users');
+    const [wayL, matL, userL, invL] = await Promise.all([
+      DataService.getCollection('waybills'),
+      DataService.getCollection('materials'),
+      DataService.getCollection('users'),
+      DataService.getCollection('inventory'),
+    ]);
     setWaybills(wayL);
     setMaterials(matL);
     setUsers(userL);
+    setInventory(invL);
   };
 
   useEffect(() => {
     reloadData();
   }, []);
 
+  const myId = profile?.uid || '';
+
+  // Stock already promised in my pending waybills is not available for a new one.
+  const reserved = (materialId: string) => waybills
+    .filter(w => w.status === 'PENDING' && w.fromUid === myId)
+    .flatMap(w => w.items)
+    .filter(i => i.materialId === materialId)
+    .reduce((sum, i) => sum + i.quantity, 0);
+
+  const myStock = inventory
+    .filter(i => i.holderId === myId)
+    .map(i => ({ ...i, available: i.balance - reserved(i.materialId) }))
+    .filter(i => i.available > 0);
+
+  const selectedStock = myStock.find(i => i.materialId === selectedMatId);
+
+  const resetForm = () => {
+    setToUserIdx('');
+    setSelectedMatId('');
+    setQuantity(0);
+  };
+
   const handleCreate = async () => {
-    const profileId = profile?.uid || (profile as any).id;
-    if (!profileId || !toUserIdx || !selectedMatId || quantity <= 0) return;
+    if (!myId) return;
+    if (!toUserIdx) return alert('Qabul qiluvchini tanlang');
+    if (!selectedStock) return alert('Materialni tanlang');
+    if (!(quantity > 0)) return alert('Miqdor 0 dan katta bo\'lishi kerak');
+    if (quantity > selectedStock.available) return alert(`Qoldiq yetarli emas: mavjud ${selectedStock.available} ${selectedStock.unit}`);
     const material = materials.find(m => m.id === selectedMatId);
-    
-    await DataService.addToCollection('waybills', {
-      fromUid: profileId,
-      toUid: toUserIdx,
-      items: [{
-        materialId: selectedMatId,
-        name: material?.name,
-        quantity: quantity,
-        unit: material?.unit
-      }],
-      status: 'PENDING'
-    });
-    setShowAddModal(false);
-    reloadData();
+
+    try {
+      await DataService.addToCollection('waybills', {
+        fromUid: myId,
+        toUid: toUserIdx,
+        items: [{
+          materialId: selectedMatId,
+          name: material?.name || selectedStock.name,
+          quantity,
+          unit: material?.unit || selectedStock.unit
+        }],
+        status: 'PENDING'
+      });
+      setShowAddModal(false);
+      resetForm();
+      reloadData();
+    } catch (err: any) {
+      alert('Xatolik: ' + err.message);
+    }
   };
 
   const handleApprove = async (waybill: Waybill) => {
     try {
-      await DataService.approveWaybill(waybill);
+      await DataService.approveWaybill(waybill.id, myId);
+      reloadData();
+    } catch (err: any) {
+      alert('Xatolik: ' + err.message);
+    }
+  };
+
+  const handleCancel = async (waybill: Waybill) => {
+    if (!confirm('Nakladnoyni bekor qilasizmi?')) return;
+    try {
+      await DataService.removeFromCollection('waybills', waybill.id);
       reloadData();
     } catch (err: any) {
       alert('Xatolik: ' + err.message);
@@ -62,7 +107,9 @@ export default function Waybills() {
     return u ? u.fullName : `ID: ${id.slice(0, 6)}`;
   };
 
-  const myId = profile?.uid || (profile as any).id;
+  const visibleWaybills = profile?.role === UserRole.ADMIN
+    ? waybills
+    : waybills.filter(w => w.fromUid === myId || w.toUid === myId);
 
   return (
     <div className="space-y-6">
@@ -81,7 +128,7 @@ export default function Waybills() {
       </div>
 
       <div className="grid grid-cols-1 gap-6">
-        {waybills.map((bill) => (
+        {visibleWaybills.map((bill) => (
           <div key={bill.id} className="bg-white border border-slate-100 rounded-[2rem] p-8 shadow-sm hover:shadow-xl transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-8 group">
             <div className="flex flex-col md:flex-row gap-8 items-center">
               <div className="flex items-center space-x-4">
@@ -126,6 +173,15 @@ export default function Waybills() {
                 </div>
               </div>
               
+              {bill.status === 'PENDING' && bill.fromUid === myId && (
+                <button
+                  onClick={() => handleCancel(bill)}
+                  className="px-6 py-3 border border-red-100 text-red-500 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-red-50 transition-all flex items-center space-x-2"
+                >
+                  <X className="w-4 h-4" />
+                  <span>Bekor qilish</span>
+                </button>
+              )}
               {bill.status === 'PENDING' && bill.toUid === myId && (
                 <button 
                   onClick={() => handleApprove(bill)}
@@ -157,7 +213,7 @@ export default function Waybills() {
                   onChange={(e) => setToUserIdx(e.target.value)}
                 >
                   <option value="">Tanlang...</option>
-                  {users.filter(u => (u.uid || (u as any).id) !== myId).map(u => <option key={u.uid || (u as any).id} value={u.uid || (u as any).id}>{u.fullName} ({u.role})</option>)}
+                  {users.filter(u => (u.uid || (u as any).id) !== myId && u.role !== UserRole.PENDING).map(u => <option key={u.uid || (u as any).id} value={u.uid || (u as any).id}>{u.fullName} ({u.role})</option>)}
                 </select>
               </div>
               <div>
@@ -167,12 +223,18 @@ export default function Waybills() {
                   value={selectedMatId}
                   onChange={(e) => setSelectedMatId(e.target.value)}
                 >
-                  <option value="">Tanlang...</option>
-                  {materials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  <option value="">{myStock.length ? 'Tanlang...' : 'Sizda yuborish uchun qoldiq yo\'q'}</option>
+                  {myStock.map(i => (
+                    <option key={i.materialId} value={i.materialId}>
+                      {materials.find(m => m.id === i.materialId)?.name || i.name} — {i.available} {i.unit}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Miqdori</label>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">
+                  Miqdori{selectedStock && ` (maks. ${selectedStock.available} ${selectedStock.unit})`}
+                </label>
                 <input 
                   type="number"
                   className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-bold focus:bg-white focus:ring-4 focus:ring-blue-50 transition-all"

@@ -44,20 +44,23 @@ export default function Requisitions() {
     setCart(cart.filter(c => c.materialId !== id));
   };
 
+  const myId = profile?.uid || '';
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profile || !selectedProjectId || cart.length === 0) return;
+    if (!myId || !selectedProjectId || cart.length === 0) return;
+    if (cart.some(c => !(c.quantity > 0))) return alert('Barcha materiallar miqdori 0 dan katta bo\'lishi kerak');
 
     const newReq = {
       objectId: selectedProjectId,
-      requesterUid: profile.uid || (profile as any).id,
+      requesterUid: myId,
       items: cart,
       status: RequisitionStatus.PENDING_CHIEF,
       history: [{
-        status: RequisitionStatus.DRAFT,
+        status: RequisitionStatus.PENDING_CHIEF,
         timestamp: new Date().toISOString(),
-        userUid: profile.uid || (profile as any).id,
-        comment: 'Заявка яратилди'
+        userUid: myId,
+        comment: 'Zayavka yaratildi'
       }],
     };
 
@@ -67,25 +70,24 @@ export default function Requisitions() {
       setCart([]);
       setSelectedProjectId('');
       reloadData();
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      alert('Xatolik: ' + err.message);
     }
   };
 
-  const updateStatus = async (req: Requisition, nextStatus: RequisitionStatus, comment: string = '') => {
-    if (!profile) return;
-    const historyItem = {
-      status: nextStatus,
-      timestamp: new Date().toISOString(),
-      userUid: profile.uid || (profile as any).id,
-      comment
-    };
-    
-    await DataService.updateInCollection('requisitions', req.id, {
-      status: nextStatus,
-      history: [...(req.history || []), historyItem]
-    });
-    reloadData();
+  const decide = async (req: Requisition, decision: 'approve' | 'reject') => {
+    let comment: string | undefined;
+    if (decision === 'reject') {
+      const reason = prompt('Rad etish sababi:');
+      if (reason === null) return;
+      comment = reason.trim() || undefined;
+    }
+    try {
+      await DataService.decideRequisition(req.id, myId, decision, comment);
+      reloadData();
+    } catch (err: any) {
+      alert('Xatolik: ' + err.message);
+    }
   };
 
   const getStatusColor = (status: RequisitionStatus) => {
@@ -97,20 +99,21 @@ export default function Requisitions() {
     }
   };
 
-  const canApprove = (req: Requisition) => {
-    if (!profile) return false;
-    if (profile.role === UserRole.CHIEF_ENGINEER && req.status === RequisitionStatus.PENDING_CHIEF) return true;
-    if (profile.role === UserRole.PTO && req.status === RequisitionStatus.PENDING_PTO) return true;
-    if (profile.role === UserRole.MANAGEMENT && req.status === RequisitionStatus.PENDING_MGMT) return true;
-    if (profile.role === UserRole.ADMIN) return true; // Admin can approve anything
-    return false;
+  const APPROVER_ROLE: Partial<Record<RequisitionStatus, UserRole>> = {
+    [RequisitionStatus.PENDING_CHIEF]: UserRole.CHIEF_ENGINEER,
+    [RequisitionStatus.PENDING_PTO]: UserRole.PTO,
+    [RequisitionStatus.PENDING_MGMT]: UserRole.MANAGEMENT,
   };
 
-  const nextAction = (req: Requisition) => {
-    if (req.status === RequisitionStatus.PENDING_CHIEF) return RequisitionStatus.PENDING_PTO;
-    if (req.status === RequisitionStatus.PENDING_PTO) return RequisitionStatus.PENDING_MGMT;
-    return RequisitionStatus.APPROVED;
+  const canApprove = (req: Requisition) => {
+    const role = APPROVER_ROLE[req.status];
+    if (!profile || !role) return false;
+    return profile.role === role || profile.role === UserRole.ADMIN;
   };
+
+  const visibleRequisitions = profile?.role === UserRole.FOREMAN
+    ? requisitions.filter(r => r.requesterUid === myId)
+    : requisitions;
 
   return (
     <div className="space-y-6">
@@ -133,7 +136,7 @@ export default function Requisitions() {
       </div>
 
       <div className="grid grid-cols-1 gap-6">
-        {requisitions.map((req) => (
+        {visibleRequisitions.map((req) => (
           <div key={req.id} className="bg-white border border-slate-100 rounded-[2rem] p-8 shadow-sm hover:shadow-xl transition-all relative group">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-6">
               <div className="flex items-center space-x-4">
@@ -178,14 +181,14 @@ export default function Requisitions() {
                   {canApprove(req) && (
                     <>
                       <button 
-                        onClick={() => updateStatus(req, RequisitionStatus.REJECTED, 'Administrator tomonidan rad etildi')}
+                        onClick={() => decide(req, 'reject')}
                         className="flex items-center space-x-2 px-5 py-2.5 rounded-xl border border-red-100 text-red-500 hover:bg-red-50 text-xs font-black uppercase tracking-widest transition-all"
                       >
                         <XCircle className="w-4 h-4" />
                         <span>Rad etish</span>
                       </button>
                       <button 
-                        onClick={() => updateStatus(req, nextAction(req), 'Tasdiqlandi')}
+                        onClick={() => decide(req, 'approve')}
                         className="flex items-center space-x-2 px-6 py-2.5 rounded-xl bg-green-500 text-white hover:bg-green-600 text-xs font-black uppercase tracking-widest shadow-lg shadow-green-100 transition-all"
                       >
                         <CheckCircle2 className="w-4 h-4" />

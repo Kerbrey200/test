@@ -37,7 +37,9 @@ export default function Invoices() {
 
   const addItem = () => {
     const mat = materials.find(m => m.id === currentMatId);
-    if (!mat || currentQty <= 0) return;
+    if (!mat) return alert('Materialni tanlang');
+    if (!(currentQty > 0)) return alert('Miqdor 0 dan katta bo\'lishi kerak');
+    if (!(currentPrice >= 0)) return alert('Narx noto\'g\'ri');
     setInvoiceItems([...invoiceItems, {
       materialId: mat.id,
       name: mat.name,
@@ -53,7 +55,11 @@ export default function Invoices() {
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (invoiceItems.length === 0) return alert('Kamida bitta material qo\'shing');
-    
+    const number = newInvoice.number.trim();
+    if (invoices.some(i => i.number.trim() === number && i.supplier.trim().toLowerCase() === newInvoice.supplier.trim().toLowerCase())) {
+      return alert(`№ ${number} shet-faktura bu yetkazib beruvchidan allaqachon kiritilgan`);
+    }
+
     try {
       await DataService.addInvoice({
         ...newInvoice,

@@ -7,7 +7,7 @@ export async function apiFetch(endpoint: string, options: any = {}) {
     },
   });
   if (!res.ok) {
-    const error = await res.json();
+    const error = await res.json().catch(() => ({}));
     throw new Error(error.message || "Xatolik yuz berdi");
   }
   return res.json();

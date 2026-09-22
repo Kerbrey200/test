@@ -1,51 +1,50 @@
 import { apiFetch } from '../lib/api';
-import { 
-  Waybill, 
-  TechnicalReport,
-} from '../types';
+
+const post = (endpoint: string, body: any) =>
+  apiFetch(endpoint, { method: 'POST', body: JSON.stringify(body) });
 
 export const DataService = {
-  async approveWaybill(waybill: Waybill) {
-    return apiFetch('/api/action/approveWaybill', {
-      method: 'POST',
-      body: JSON.stringify({ waybillId: waybill.id })
-    });
+  approveWaybill(waybillId: string, actorId: string) {
+    return post('/api/action/approveWaybill', { waybillId, actorId });
   },
 
-  async approveTechReport(report: TechnicalReport) {
-    return apiFetch('/api/action/approveTechReport', {
-      method: 'POST',
-      body: JSON.stringify({ reportId: report.id })
-    });
+  approveReport(reportId: string, actorId: string) {
+    return post('/api/action/approveReport', { reportId, actorId });
   },
 
-  async addInvoice(invoiceData: any) {
-    return apiFetch('/api/action/addInvoice', {
-      method: 'POST',
-      body: JSON.stringify(invoiceData)
-    });
+  decideRequisition(requisitionId: string, actorId: string, decision: 'approve' | 'reject', comment?: string) {
+    return post('/api/action/decideRequisition', { requisitionId, actorId, decision, comment });
+  },
+
+  addInvoice(invoiceData: any) {
+    return post('/api/action/addInvoice', invoiceData);
+  },
+
+  addStock(holderId: string, items: any[]) {
+    return post('/api/action/addStock', { holderId, items });
+  },
+
+  getMe(id: string) {
+    return apiFetch(`/api/auth/me/${id}`);
   },
 
   // CRUD Helpers
-  async getCollection(name: string) {
+  getCollection(name: string) {
     return apiFetch(`/api/data/${name}`);
   },
 
-  async addToCollection(name: string, data: any) {
-    return apiFetch(`/api/data/${name}`, {
-      method: 'POST',
-      body: JSON.stringify(data)
-    });
+  addToCollection(name: string, data: any) {
+    return post(`/api/data/${name}`, data);
   },
 
-  async updateInCollection(name: string, id: string, data: any) {
+  updateInCollection(name: string, id: string, data: any) {
     return apiFetch(`/api/data/${name}/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data)
     });
   },
 
-  async removeFromCollection(name: string, id: string) {
+  removeFromCollection(name: string, id: string) {
     return apiFetch(`/api/data/${name}/${id}`, {
       method: 'DELETE'
     });
