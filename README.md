@@ -2,6 +2,30 @@
 
 Professional organization management system.
 
+## Login va parollar
+
+Barcha foydalanuvchilar `data.json` faylida saqlanadi. Hamma demo akkauntlarning paroli: **`123456`**
+
+| Rol | Email (login) | Parol | Nima qila oladi |
+|---|---|---|---|
+| Administrator | `naigaks2021@gmail.com` | `123456` | Foydalanuvchilar, obyektlar, materiallar, Excel import; hamma bosqichda tasdiqlash |
+| Prorab (FOREMAN) | `prorab@demo.uz` | `123456` | Zayavka va M-29 hisobot yaratish, nakladnoy yuborish/qabul qilish |
+| Sklad (WAREHOUSE) | `sklad@demo.uz` | `123456` | Nakladnoy yuborish/qabul qilish |
+| Snabjeniye (SUPPLY) | `snab@demo.uz` | `123456` | Shet-faktura kirimi, nakladnoy, zayavkalarni ko'rish |
+| PTO | `pto@demo.uz` | `123456` | Zayavka (2-bosqich) va hisobot (1-bosqich) tasdiqlash |
+| Bosh muhandis (CHIEF_ENGINEER) | `muhandis@demo.uz` | `123456` | Zayavka (1-bosqich) va hisobot (yakuniy) tasdiqlash, ombor inventari |
+| Buxgalteriya (ACCOUNTING) | `buxgalter@demo.uz` | `123456` | Hisobotlarni ko'rish |
+| Rahbariyat (MANAGEMENT) | `rahbar@demo.uz` | `123456` | Zayavkani yakuniy tasdiqlash |
+
+**Ish oqimlari:**
+- **Zayavka:** Prorab → Bosh muhandis → PTO → Rahbariyat → `APPROVED`
+- **M-29 hisobot:** Prorab → PTO → Bosh muhandis (tasdiqlanganda prorab qoldig'idan ayiriladi)
+- **Kirim:** Shet-faktura (Snabjeniye) yoki Excel import (Admin) → tanlangan Sklad/Snabjeniye xodimi hisobiga
+- **Nakladnoy:** Yuboruvchi yaratadi → qabul qiluvchi tasdiqlaydi (yuboruvchida qoldiq yetarli bo'lishi shart)
+
+> **Diqqat:** Demo akkauntlar faqat sinov uchun. Haqiqiy ishga tushirishdan oldin ularni o'chiring yoki parollarini
+> **Foydalanuvchilar** sahifasidan almashtiring.
+
 ## Deployment Instructions
 
 ### Prerequisites
