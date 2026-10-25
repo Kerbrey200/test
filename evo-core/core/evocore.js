@@ -142,7 +142,8 @@ export class EvoCore {
     signature,
     rootCause = '',
     rule = '',
-    verifiedCode = ''
+    verifiedCode = '',
+    recordRegression = true
   } = {}) {
     const command = this.resolveTestCommand({ testCommand, testCommandId });
     const cleanSignature = typeof signature === 'string' && signature.trim() ? signature.trim().slice(0, 200) : null;
@@ -194,12 +195,12 @@ export class EvoCore {
       } else {
         autoSkillResult = this.syncSkillUtility(cleanSignature, museResult.utilityScore);
       }
-    } else if (REGRESSION_ACTIONS.has(ratchetResult.action) && cleanSignature) {
+    } else if (REGRESSION_ACTIONS.has(ratchetResult.action) && cleanSignature && recordRegression) {
       // Only a hypothesis that was actually tried and failed is a regression.
-      const utility = this.memory.reportRegression(cleanSignature);
-      if (utility !== null) {
-        museResult = { signature: cleanSignature, action: 'REGRESSION_RECORDED', utilityScore: utility };
-        autoSkillResult = this.syncSkillUtility(cleanSignature, utility);
+      const regression = this.recordManualRegression(cleanSignature);
+      if (regression) {
+        museResult = { signature: regression.signature, action: 'REGRESSION_RECORDED', utilityScore: regression.newUtility };
+        autoSkillResult = regression.skill;
       }
     }
 

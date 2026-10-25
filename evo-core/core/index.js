@@ -15,6 +15,7 @@ export { AutoSkillDistiller } from './autoskill_distiller.js';
 export { EvidenceReporter } from './reporter.js';
 export { LLMBridge, LLMError, SUPPORTED_PROVIDERS } from './llm_bridge.js';
 export { JobQueue } from './job_queue.js';
+export { EvolutionLoop, EvolveError, metricFromPattern, summarizeFailure } from './evolver.js';
 export { EvoServer } from './server.js';
 export { MQLValidator } from './mql_validator.js';
 export { DashboardGenerator } from './dashboard_generator.js';
