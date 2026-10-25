@@ -1,0 +1,6 @@
+node_modules/
+coverage/
+.env
+
+# Runtime data written by EvoCore (SQLite memory, dashboards, rollback backups)
+storage/
