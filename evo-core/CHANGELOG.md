@@ -1,5 +1,25 @@
 # O'zgarishlar tarixi
 
+## 1.2.0 — avtonom evolve sikli (C varianti)
+
+### ➕ Yangi
+
+- **Evolve sikli** (`core/evolver.js`): kontekst → LLM nomzod → ratchet → xato feedback → qayta urinish, iteratsiya va vaqt byudjeti bilan.
+  - Scope'da commit qilinmagan o'zgarish bo'lsa boshlanmaydi, shuning uchun rollback faqat siklning o'z nomzodiga tegadi.
+  - Test fayllari, scope tashqarisidagi va istisno qilingan fayllar rad etiladi.
+  - Niqoblanadigan qiymat (token, parol, tasodifiy kalit) saqlagan fayllar va `[REDACTED_SECRET]` qaytargan nomzodlar rad etiladi.
+  - Bo'sh yoki o'zgarishsiz nomzodlar diskka yozilmaydi. CRLF va oxirgi qator saqlanadi.
+  - Sinov istisno tashlasa, asl fayl tiklanadi.
+  - Bitta ish = bitta gipoteza: oraliq urinishlar MUSE regressiyasi emas.
+- **LLM provayderlari:**
+  - `anthropic` — rasmiy `@anthropic-ai/sdk` orqali (loyihaning birinchi npm bog'liqligi, faqat shu provayder tanlanganda yuklanadi). Standart model `claude-opus-5-5`, streaming, `effort: high`. Server tomonidagi refusal fallback (`fallbacks: "default"`) standart holatda yoqilgan. `temperature` yuborilmaydi (API 2026-10-21 rad etadi). Refusal va `max_tokens` aniq xatoga aylanadi.
+  - `gemini` — `generateContent` REST. Model va kalit majburiy.
+  - `openai` (OpenAI-mos) va `mock` saqlandi.
+- **CLI:** `evocore evolve --file ... --instruction ...` (jonli progress, exit 0/2).
+- **API:** `POST /api/evolve`. So'rov navbatga qo'yilishdan oldin tekshiriladi. Provayder faqat server muhitidan olinadi, so'rov uni tanlay olmaydi. Vazifalar `progress` hodisalarini qaytaradi. `/api/config` LLM holatini ko'rsatadi.
+- **Studio:** "🤖 Avtonom Evolve" bo'limi — jonli iteratsiya jurnali va yakuniy hisobot.
+- **CI:** `npm ci` qadami qo'shildi.
+
 ## 1.1.0 — xavfsizlik va ishonchlilik bo'yicha qayta qurish
 
 Har bir muammo regressiya testi bilan yopilgan (testlarda `regression: <ID>` deb belgilangan).
@@ -49,6 +69,3 @@ Har bir muammo regressiya testi bilan yopilgan (testlarda `regression: <ID>` deb
 - MUSE: sxema migratsiyalari (eski bazalar avtomatik yangilanadi), trayektoriyalar, WAL.
 - CI: Linux + Windows, Node 22 + 24; Playwright UI smoke-test (`npm run test:ui`).
 
-### Keyingi qadam (C varianti)
-
-LLM'ni orkestratorga ulash (avtonom `evolve` sikli: kontekst → nomzod patch → ratchet → xato qayta yuboriladi) va Anthropic/Gemini adapterlari.

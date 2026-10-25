@@ -1,12 +1,12 @@
 # 🏛️ EvoCore: Tri-Core Autonomous Evolution Engine
 
-**EvoCore** — tashqi bog'liqliklarsiz ("Zero-Fat"), sof Node.js va mahalliy SQLite asosida qurilgan, o'z-o'zini rivojlantiruvchi dasturiy dvigatel. U uchta g'oyani yagona yopiq zanjirga birlashtiradi:
+**EvoCore** — sof Node.js va mahalliy SQLite asosida qurilgan, o'z-o'zini rivojlantiruvchi dasturiy dvigatel. Yadro tashqi paketlarsiz ishlaydi ("Zero-Fat"). Yagona istisno: Claude provayderi uchun rasmiy Anthropic SDK. U uchta g'oyani yagona yopiq zanjirga birlashtiradi:
 
 1. **Karpathy Ratchet** — o'zgarish faqat haqiqiy testlar va metrika tasdiqlasa commit qilinadi, aks holda tiklanadigan rollback.
 2. **MUSE xotirasi** — har bir sinovdan ildiz sabab, ishlagan yechim va trayektoriya SQLite'ga yoziladi.
 3. **AutoSkill** — tasdiqlangan darslar versiyalangan `Skill.md` fayllariga aylanadi va utility pasaysa arxivlanadi.
 
-Qo'shimcha: MQL4 → MQL5 savdo kodi auditori, JS/TS/Python/MQL AST skaneri, veb boshqaruv paneli (EvoCore Studio) va offline HTML dashboard.
+Ustiga: **avtonom evolve sikli**. Unda LLM (OpenAI-mos, Claude, Gemini yoki offline mock) kod nomzodini yozadi, ratchet uni tekshiradi, muvaffaqiyatsiz bo'lsa xato LLM'ga qaytariladi. Shuningdek: MQL4 → MQL5 savdo kodi auditori, JS/TS/Python/MQL AST skaneri, veb boshqaruv paneli (EvoCore Studio) va offline HTML dashboard.
 
 ---
 
@@ -14,13 +14,14 @@ Qo'shimcha: MQL4 → MQL5 savdo kodi auditori, JS/TS/Python/MQL AST skaneri, veb
 
 - **Node.js ≥ 22.13** (`node:sqlite` bayroqsiz ishlashi uchun)
 - **git ≥ 2.26** (`--pathspec-from-file` uchun)
-- npm paketlari kerak emas.
+- Yagona npm bog'liqlik — rasmiy **`@anthropic-ai/sdk`**. U faqat `anthropic` provayderi tanlanganda yuklanadi, qolgan hamma narsa `npm install` siz ham ishlaydi.
 
 ## 🚀 Tezkor boshlash
 
 ```bash
 cd evo-core
-npm test                      # 118 ta test, hammasi vaqtinchalik papkalarda
+npm install                   # faqat Claude (anthropic) provayderi uchun kerak
+npm test                      # 138 ta test, hammasi vaqtinchalik papkalarda
 node bin/evocore.js --help    # CLI yordami
 node bin/serve.js             # Web Studio (havola terminalda chiqadi)
 ```
@@ -57,6 +58,44 @@ Rollback qilingan ishni qaytarish: `git stash apply <stashRef>` (havola hisobotd
 
 ---
 
+## 🤖 Avtonom Evolve (LLM + Ratchet)
+
+```
+kontekst (skill'lar, MUSE tajribalari) ─► LLM nomzod fayl ─► faylga yozish
+   ─► to'liq ratchet sinovi (audit → test → gate) ─► COMMITTED ? tugadi
+   : xato xulosasi (test chiqishi, gate sabablari) LLM'ga qaytariladi ─► keyingi iteratsiya
+```
+
+```bash
+node bin/evocore.js evolve --file src/calc.js --instruction "calculate() 100 qaytarsin" \
+  --test "npm test" --iterations 3 --provider anthropic --signature CALC_100 --rule "..."
+```
+
+Xavfsizlik qoidalari:
+- **Boshlashdan oldin** scope'da commit qilinmagan o'zgarish bo'lmasligi kerak. Shunday qilib rollback faqat siklning o'z nomzodini stash'ga oladi, sizning ishingizga tegmaydi.
+- Maqsad fayl scope ichida, istisnolardan tashqarida bo'lishi kerak va **test fayli bo'lmasligi** kerak.
+- Faylda LLM'ga yuborishdan oldin niqoblanadigan qiymat (token, parol, tasodifiy kalit) bo'lsa, sikl rad etadi. Aks holda javob asl qiymatni buzar edi.
+- Bo'sh, o'zgarishsiz yoki `[REDACTED_SECRET]` saqlagan nomzodlar diskka yozilmaydi.
+- Sikl quyidagi hollarda to'xtaydi: muvaffaqiyat, ochiq circuit breaker, rollback xatosi, LLM sozlama xatosi (401/403/400) yoki iteratsiya/vaqt byudjeti tugashi.
+- Bitta evolve ishi bitta gipoteza hisoblanadi: butun ish muvaffaqiyatsiz tugasa, MUSE'ga **bitta** regressiya yoziladi.
+
+Studio'da **🤖 Avtonom Evolve** bo'limi jonli iteratsiya jurnali bilan ishlaydi. LLM provayderi faqat server muhitidan olinadi, so'rov uni tanlay olmaydi.
+
+### LLM provayderlari
+
+| `EVO_PROVIDER` | Protokol | Standart model | Izoh |
+|---|---|---|---|
+| `mock` (standart) | — | — | Offline, deterministik (testlar va demo uchun) |
+| `openai` | OpenAI-mos `/chat/completions` (fetch) | `gpt-4o-mini` | OpenAI, DeepSeek, OpenRouter, Ollama, LM Studio, vLLM. Mahalliy serverlar uchun kalit shart emas |
+| `anthropic` | Rasmiy `@anthropic-ai/sdk` (streaming) | `claude-opus-5-5` | `effort: high`, server tomonidagi refusal fallback (`fallbacks: "default"`) yoqilgan; kalit `EVO_API_KEY` yoki SDK'ning o'zi (`ANTHROPIC_API_KEY`, `ant auth login`) |
+| `gemini` | `generateContent` REST (fetch) | — (`EVO_MODEL` majburiy) | `EVO_API_KEY` majburiy |
+
+Boshqa muhit o'zgaruvchilari: `EVO_MODEL`, `EVO_BASE_URL`, `EVO_API_KEY`, `EVO_EFFORT` (Claude uchun: `low`…`max`, `none` — yubormaslik), `EVO_ANTHROPIC_FALLBACKS=0` (Claude fallback'ni o'chirish).
+
+> Claude refusal fallback: agar Claude xavfsizlik klassifikatori so'rovni rad etsa, API uni server tomonida Anthropic tavsiya qilgan boshqa modelda qayta ishlaydi. Shuning uchun u standart holatda yoqilgan. Kerak bo'lmasa, `EVO_ANTHROPIC_FALLBACKS=0` bilan o'chiring.
+
+---
+
 ## 🖥️ CLI
 
 ```bash
@@ -67,6 +106,7 @@ node bin/evocore.js history                   # sinovlar tarixi
 node bin/evocore.js scan src/app.ts           # AST tahlili, qator raqamlari bilan
 node bin/evocore.js audit expert.mq4          # MQL audit (kritik xatoda exit 2 — CI uchun)
 node bin/evocore.js trial --test "npm test" --hypothesis "..." --signature SIG --rule "..."
+node bin/evocore.js evolve --file src/a.js --instruction "..." --test "npm test" --provider mock
 node bin/evocore.js rollback                  # scope o'zgarishlarini stash'ga olish
 node bin/evocore.js reset-breaker             # circuit breaker'ni tiklash
 node bin/evocore.js dashboard --out report.html
@@ -83,7 +123,7 @@ node bin/serve.js [--port 3777] [--host 127.0.0.1]
 - Server **faqat 127.0.0.1** da ochiladi. Terminalda chiqqan havolada shu sessiya uchun **API token** bor. Token brauzerda sessiya xotirasiga olinadi va manzil satridan o'chiriladi.
 - Doimiy token kerak bo'lsa: `EVO_TOKEN=... node bin/serve.js`.
 - Test buyruqlari **faqat** `evocore.config.json` dagi `testCommands` ro'yxatidan tanlanadi. So'rov orqali yuborilgan buyruq rad etiladi.
-- Bo'limlar: Dashboard, Ratchet, Kod tahlili (MQL + AST), MUSE xotirasi, AutoSkill, Sinovlar tarixi, Terminal.
+- Bo'limlar: Dashboard, Ratchet, Avtonom Evolve (jonli jurnal), Kod tahlili (MQL + AST), MUSE xotirasi, AutoSkill, Sinovlar tarixi, Terminal.
 
 ## 🧩 Sozlamalar (`evocore.config.json`)
 
@@ -100,7 +140,7 @@ node bin/serve.js [--port 3777] [--host 127.0.0.1]
 | `promotionThreshold` | `75` | Commit uchun minimal scorecard bali |
 | `server.host` / `server.port` | `127.0.0.1` / `3777` | Web Studio manzili |
 
-LLM ko'prigi (`core/llm_bridge.js`) uchun muhit o'zgaruvchilari: `EVO_PROVIDER` (`mock` yoki `openai`), `EVO_BASE_URL`, `EVO_API_KEY`, `EVO_MODEL`. `openai` provayderi istalgan OpenAI-mos endpoint bilan ishlaydi: OpenAI, DeepSeek, OpenRouter, Ollama, LM Studio va boshqalar. Mahalliy serverlar uchun kalit shart emas.
+LLM provayderi muhit o'zgaruvchilari orqali sozlanadi (yuqoridagi "LLM provayderlari" jadvaliga qarang).
 
 ---
 
@@ -134,6 +174,7 @@ evo-core/
     serve.js              Web Studio ishga tushiruvchi
   core/
     evocore.js            Orkestrator: kontekst, gate, MUSE/AutoSkill, hisobot
+    evolver.js            Avtonom evolve sikli: LLM nomzod → ratchet → feedback
     ratchet_engine.js     Ratchet: audit → test → dalil → gate → commit/stash
     git_workspace.js      Shell'siz git: scope, diff (untracked bilan), commit, stash
     runner.js             Async buyruq: timeout, jarayon daraxtini o'ldirish, chiqish limiti
@@ -145,9 +186,9 @@ evo-core/
     ast_scanner.js        JS/TS/Python/MQL struktura skaneri
     mql_validator.js      MQL4 → MQL5 auditori
     source_utils.js       Izoh/string tozalash, qavslar, argumentlar
-    llm_bridge.js         OpenAI-mos LLM mijozi + mock
+    llm_bridge.js         LLM: OpenAI-mos, Claude (rasmiy SDK), Gemini, mock
     server.js             HTTP API: token, Host/Origin tekshiruvi, JSON limit
-    job_queue.js          Ketma-ket vazifalar navbati
+    job_queue.js          Ketma-ket vazifalar navbati (progress hodisalari bilan)
     web_ui.js             EvoCore Studio (CSP nonce, textContent)
     dashboard_generator.js  Offline HTML hisobot (escape + skriptlar taqiqlangan)
     reporter.js           8 bo'limli dalil hisoboti
