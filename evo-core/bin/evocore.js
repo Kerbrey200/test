@@ -31,7 +31,7 @@ try {
     console.log(`📚 Faol Ko'nikmalar (AutoSkill): ${status.activeSkillsCount}`);
     console.log(`🧠 Saqlangan Tajribalar (MUSE): ${status.experiencesCount}`);
     console.log(`🔄 Bajarilgan Sinovlar (Ratchet): ${status.historyCount}`);
-    console.log(`🛡️  Circuit Breaker Xatoliklar: ${status.circuitBreakerFailures} / 3`);
+    console.log(`🛡️  Circuit Breaker Xatoliklar: ${status.circuitBreakerFailures} / ${status.maxConsecutiveFailures}${status.circuitOpen ? ' (OCHIQ — sinovlar bloklangan)' : ''}`);
     console.log('\n✔ Tizim to\'liq ishchi holatda.\n');
 
   } else if (command === 'skills') {

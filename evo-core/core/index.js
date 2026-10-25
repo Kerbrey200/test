@@ -2,9 +2,14 @@
  * EVO-CORE COMPLETE API EXPORTS
  */
 
-export { Gatekeeper } from './gatekeeper.js';
+export { VERSION } from './version.js';
+export { Gatekeeper, REDACTED } from './gatekeeper.js';
+export { loadConfig, validateConfig, ConfigError, DEFAULT_CONFIG, CONFIG_FILE } from './config.js';
+export { GitWorkspace, GitError } from './git_workspace.js';
+export { CommandRunner } from './runner.js';
+export { TestEvidence } from './evidence.js';
 export { ASTScanner } from './ast_scanner.js';
-export { RatchetEngine } from './ratchet_engine.js';
+export { RatchetEngine, TrialAction } from './ratchet_engine.js';
 export { MUSEMemory } from './muse_memory.js';
 export { AutoSkillDistiller } from './autoskill_distiller.js';
 export { EvidenceReporter } from './reporter.js';

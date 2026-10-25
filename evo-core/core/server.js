@@ -95,7 +95,7 @@ export class EvoServer {
 
           // 5. POST /api/ratchet/step
           if (pathname === '/api/ratchet/step' && method === 'POST') {
-            const stepResult = this.evo.executeEvolutionStep(body);
+            const stepResult = await this.evo.executeEvolutionStep(body);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(stepResult));
             return;
@@ -103,9 +103,9 @@ export class EvoServer {
 
           // 6. POST /api/ratchet/rollback
           if (pathname === '/api/ratchet/rollback' && method === 'POST') {
-            const ok = this.evo.ratchet.rollback();
+            const rollback = this.evo.ratchet.rollback('manual rollback (web)');
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: ok, action: 'ROLLED_BACK' }));
+            res.end(JSON.stringify(rollback));
             return;
           }
 

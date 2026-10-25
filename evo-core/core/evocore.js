@@ -6,17 +6,47 @@
 import path from 'node:path';
 import { Gatekeeper } from './gatekeeper.js';
 import { ASTScanner } from './ast_scanner.js';
-import { RatchetEngine } from './ratchet_engine.js';
+import { RatchetEngine, TrialAction } from './ratchet_engine.js';
 import { MUSEMemory } from './muse_memory.js';
 import { AutoSkillDistiller } from './autoskill_distiller.js';
 import { EvidenceReporter } from './reporter.js';
+import { loadConfig } from './config.js';
+import { VERSION } from './version.js';
+
+// Outcomes where the hypothesis was actually tried and failed: these count as regressions.
+const REGRESSION_ACTIONS = new Set([
+  TrialAction.ROLLED_BACK,
+  TrialAction.REJECTED_GAMING,
+  TrialAction.REJECTED_SECURITY,
+  TrialAction.REJECTED_GATE,
+  TrialAction.COMMIT_FAILED,
+  TrialAction.ROLLBACK_FAILED
+]);
 
 export class EvoCore {
+  /**
+   * @param {object} [options]
+   * @param {string} [options.rootDir] Project root (defaults to cwd)
+   * @param {object} [options.config] Overrides for evocore.config.json
+   */
   constructor(options = {}) {
-    this.rootDir = options.rootDir || process.cwd();
-    this.ratchet = new RatchetEngine({ repoDir: this.rootDir });
-    this.memory = new MUSEMemory(path.join(this.rootDir, 'storage', 'memory.sqlite'));
-    this.skills = new AutoSkillDistiller(path.join(this.rootDir, 'skills'));
+    this.rootDir = path.resolve(options.rootDir || process.cwd());
+    this.config = loadConfig(this.rootDir, options.config);
+    this.storageDir = path.join(this.rootDir, 'storage');
+    this.skillsDir = path.join(this.rootDir, 'skills');
+
+    this.memory = new MUSEMemory(path.join(this.storageDir, 'memory.sqlite'));
+    this.skills = new AutoSkillDistiller(this.skillsDir);
+    this.ratchet = new RatchetEngine({
+      repoDir: this.rootDir,
+      scope: this.config.scope,
+      // Engine data must never be evaluated, committed or rolled back as a candidate change.
+      exclude: [...this.config.exclude, 'storage', 'skills'],
+      maxConsecutiveFailures: this.config.maxConsecutiveFailures,
+      strictImprovement: this.config.strictImprovement,
+      timeoutMs: this.config.timeoutMs,
+      maxOutputBytes: this.config.maxOutputBytes
+    });
   }
 
   /**
@@ -50,82 +80,124 @@ export class EvoCore {
   }
 
   /**
-   * Executes a full closed-loop evolution trial:
-   * Ratchet -> MUSE Reflection -> AutoSkill Distillation -> Scorecard -> 8-Section Report
+   * Resolves the command to run: an explicit (trusted) command, or an id from the config allowlist.
    */
-  executeEvolutionStep({
+  resolveTestCommand({ testCommand, testCommandId } = {}) {
+    if (typeof testCommand === 'string' && testCommand.trim() !== '') return testCommand;
+    const id = testCommandId || 'default';
+    const command = this.config.testCommands[id];
+    if (!command) throw new Error(`Unknown test command id "${id}". Allowed: ${Object.keys(this.config.testCommands).join(', ')}`);
+    return command;
+  }
+
+  /**
+   * Builds the 100-point scorecard purely from measured evidence of a trial.
+   */
+  buildScorecard(trial) {
+    if (trial.exitCode === undefined || !trial.evidence) {
+      return { totalScore: 0.0, eligibleForPromotion: false, promotionThreshold: this.config.promotionThreshold };
+    }
+
+    const securityClean = !(trial.findings && trial.findings.length > 0);
+    const meetsBaseline = this.config.strictImprovement
+      ? trial.score > trial.baselineScore
+      : trial.score >= trial.baselineScore;
+    const requirements = [
+      trial.exitCode === 0,
+      trial.evidence.failed === 0,
+      trial.metricError === null && meetsBaseline,
+      securityClean
+    ];
+
+    return Gatekeeper.evaluateScorecard({
+      requirementsMet: requirements.filter(Boolean).length,
+      requirementsTotal: requirements.length,
+      compileOk: trial.exitCode === 0,
+      testsPassed: trial.evidence.passed,
+      testsTotal: trial.evidence.executed,
+      zeroSecurityViolations: securityClean,
+      modularCode: (trial.diffStats?.total ?? 0) <= this.config.maxDiffLines,
+      withinResourceBudget: !trial.timedOut && trial.durationMs <= trial.timeoutMs / 2,
+      promotionThreshold: this.config.promotionThreshold
+    });
+  }
+
+  /**
+   * Executes a full closed-loop evolution trial:
+   * Ratchet (audit -> test -> evidence -> scorecard gate -> commit/rollback)
+   * -> MUSE Reflection -> AutoSkill Distillation -> 8-Section Report.
+   * The scorecard is computed from parsed test output; caller-supplied counts are ignored.
+   */
+  async executeEvolutionStep({
     taskTitle = 'Autonomous Task',
     domain = 'GENERAL',
     hypothesis,
     testCommand,
+    testCommandId,
     metricExtractor = null,
     baselineScore = 0.0,
+    timeoutMs,
     signature,
     rootCause = '',
     rule = '',
-    verifiedCode = '',
-    requirementsMet = 1,
-    requirementsTotal = 1,
-    testsPassed = 1,
-    testsTotal = 1
-  }) {
-    // 1. Run Karpathy Ratchet Trial (Sandbox Execution & Git Ratchet)
-    const ratchetResult = this.ratchet.executeTrial({
-      hypothesis,
-      testCommand,
+    verifiedCode = ''
+  } = {}) {
+    const command = this.resolveTestCommand({ testCommand, testCommandId });
+    const cleanSignature = typeof signature === 'string' && signature.trim() ? signature.trim().slice(0, 200) : null;
+
+    const gate = (trial) => {
+      const scorecard = this.buildScorecard(trial);
+      return {
+        pass: scorecard.eligibleForPromotion,
+        scorecard,
+        reasons: scorecard.eligibleForPromotion
+          ? []
+          : [`Scorecard ${scorecard.totalScore} / 100 is not eligible (threshold ${scorecard.promotionThreshold}, all executed tests must pass).`]
+      };
+    };
+
+    // 1. Run Karpathy Ratchet Trial (the gate runs before any commit).
+    const ratchetResult = await this.ratchet.executeTrial({
+      hypothesis: hypothesis || taskTitle,
+      testCommand: command,
       metricExtractor,
-      baselineScore
+      baselineScore,
+      timeoutMs: timeoutMs || this.config.timeoutMs,
+      gate
     });
 
     let museResult = {};
     let autoSkillResult = {};
-    let scorecard = {};
 
-    if (ratchetResult.success) {
+    if (ratchetResult.action === TrialAction.COMMITTED && cleanSignature) {
       // 2. Trajectory Reflection: Record in MUSE Memory
-      if (signature) {
-        museResult = this.memory.recordExperience({
-          domain,
-          signature,
-          rootCause,
-          winningFix: rule || hypothesis
-        });
-
-        // 3. Lifelong Evolution: Distill into modular Skill.md
-        if (rule) {
-          autoSkillResult = this.skills.distillSkill({
-            name: signature,
-            description: hypothesis,
-            domain,
-            rootCause,
-            rule,
-            verifiedCode,
-            utilityScore: museResult.utilityScore || 1.0
-          });
-        }
-      }
-
-      // 4. Evaluate 100-Point Scorecard
-      scorecard = Gatekeeper.evaluateScorecard({
-        requirementsMet,
-        requirementsTotal,
-        compileOk: ratchetResult.exitCode === 0,
-        testsPassed,
-        testsTotal,
-        zeroSecurityViolations: true,
-        modularCode: true,
-        withinResourceBudget: true
+      museResult = this.memory.recordExperience({
+        domain,
+        signature: cleanSignature,
+        rootCause,
+        winningFix: rule || ratchetResult.hypothesis
       });
-    } else {
-      // Record failed regression if signature exists
-      if (signature) {
-        this.memory.reportRegression(signature);
+
+      // 3. Lifelong Evolution: Distill into modular Skill.md
+      if (rule) {
+        autoSkillResult = this.skills.distillSkill({
+          name: cleanSignature,
+          description: ratchetResult.hypothesis,
+          domain,
+          rootCause,
+          rule,
+          verifiedCode,
+          utilityScore: museResult.utilityScore ?? 1.0
+        });
       }
-      scorecard = {
-        totalScore: 0.0,
-        eligibleForPromotion: false
-      };
+    } else if (REGRESSION_ACTIONS.has(ratchetResult.action) && cleanSignature) {
+      // Only a hypothesis that was actually tried and failed is a regression.
+      const utility = this.memory.reportRegression(cleanSignature);
+      museResult = { signature: cleanSignature, action: 'REGRESSION_RECORDED', utilityScore: utility };
     }
+
+    // 4. Scorecard (already computed by the gate when tests passed).
+    const scorecard = ratchetResult.gate?.scorecard || this.buildScorecard(ratchetResult);
 
     // 5. Generate 8-Section Evidence Report
     const reportText = EvidenceReporter.generateReport({
@@ -156,11 +228,13 @@ export class EvoCore {
     const experiences = this.memory.findRelevantExperiences('', null);
 
     return {
-      engine: 'EvoCore Tri-Core Evolution Engine v1.0.0',
+      engine: `EvoCore Tri-Core Evolution Engine v${VERSION}`,
       activeSkillsCount: activeSkills.length,
       experiencesCount: experiences.length,
       historyCount: this.ratchet.executionHistory.length,
-      circuitBreakerFailures: this.ratchet.consecutiveFailures
+      circuitBreakerFailures: this.ratchet.consecutiveFailures,
+      maxConsecutiveFailures: this.ratchet.maxConsecutiveFailures,
+      circuitOpen: this.ratchet.circuitOpen
     };
   }
 
