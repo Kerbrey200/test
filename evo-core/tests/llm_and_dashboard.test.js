@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { LLMBridge } from '../core/llm_bridge.js';
-import { DashboardGenerator } from '../core/dashboard_generator.js';
+import { DashboardGenerator, escapeHtml } from '../core/dashboard_generator.js';
 import { EvoCore } from '../core/evocore.js';
 import { createTempDir, cleanupTempDirs } from './helpers/fixtures.js';
 
@@ -38,6 +38,27 @@ describe('EvoCore LLM Bridge & Visual Dashboard Tier', () => {
     assert.ok(html.includes('MUSE Episodik Traektoriya Xotirasi'));
 
     evo.close();
+  });
+
+  it('DashboardGenerator escapes stored data and forbids scripts (regression: Y4)', () => {
+    const rootDir = createTempDir();
+    const evo = new EvoCore({ rootDir });
+    const payload = '<img src=x onerror=alert(1)>';
+    evo.memory.recordExperience({ signature: payload, rootCause: `<script>alert(2)</script>`, winningFix: payload });
+    evo.skills.distillSkill({ name: 'XSS Skill', description: payload, rule: 'r' });
+    evo.memory.recordTrajectory({ hypothesis: payload, action: 'ROLLED_BACK', exitCode: 1 });
+
+    const html = fs.readFileSync(DashboardGenerator.generateHTML(evo, path.join(rootDir, 'd.html')), 'utf8');
+    assert.ok(!html.includes('<img src=x'));
+    assert.ok(!html.includes('<script>alert'));
+    assert.ok(html.includes('&lt;img src=x onerror=alert(1)&gt;'));
+    assert.ok(html.includes("content=\"default-src 'none'; style-src 'unsafe-inline'\""));
+    evo.close();
+  });
+
+  it('escapeHtml covers all HTML metacharacters', () => {
+    assert.equal(escapeHtml(`<a href="x" title='y'>&</a>`), '&lt;a href=&quot;x&quot; title=&#39;y&#39;&gt;&amp;&lt;/a&gt;');
+    assert.equal(escapeHtml(null), '');
   });
 
 });

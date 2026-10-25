@@ -19,8 +19,14 @@ export class ASTScanner {
     const content = fs.readFileSync(filePath, 'utf8');
     const ext = path.extname(filePath).toLowerCase();
 
+    return { filePath, ...ASTScanner.scanSource(content, ext) };
+  }
+
+  /**
+   * Scans source text directly (used by the web API, where no file exists).
+   */
+  static scanSource(content = '', ext = '.js') {
     return {
-      filePath,
       ext,
       lineCount: content.split('\n').length,
       functions: ASTScanner.extractFunctions(content, ext),

@@ -252,6 +252,15 @@ export class EvoCore {
   }
 
   /**
+   * Records a regression reported by a human (e.g. from the web UI) and syncs the skill.
+   */
+  recordManualRegression(signature) {
+    const utility = this.memory.reportRegression(signature);
+    if (utility === null) return null;
+    return { signature: MUSEMemory.normalizeSignature(signature), newUtility: utility, skill: this.syncSkillUtility(signature, utility) };
+  }
+
+  /**
    * Closes the circuit breaker after a human has reviewed the failures.
    */
   resetCircuitBreaker() {
