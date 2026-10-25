@@ -31,5 +31,8 @@
     "zero-fat"
   ],
   "author": "Alauddin Universal Engineer",
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0"
+  }
 }
