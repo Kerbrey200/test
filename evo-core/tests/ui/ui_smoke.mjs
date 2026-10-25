@@ -12,6 +12,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { parseArgs } from 'node:util';
 import { EvoServer } from '../../core/server.js';
+import { LLMBridge } from '../../core/llm_bridge.js';
 import { createGitRepo, writeFiles, cleanupTempDirs } from '../helpers/fixtures.js';
 
 const { values: args } = parseArgs({ options: { screenshots: { type: 'string' } } });
@@ -31,11 +32,22 @@ const check = (name, ok, detail = '') => {
   if (!ok) failures.push(name);
 };
 
-const rootDir = createGitRepo({ 'src/app.js': 'export const v = 1;\n' });
+const rootDir = createGitRepo({
+  'package.json': '{ "type": "module" }\n',
+  'src/app.js': 'export const v = 1;\n',
+  'src/calc.js': 'export function calculate() { return 10; }\n'
+});
 const server = new EvoServer({
   port: 0,
   rootDir,
-  config: { scope: ['src'], testCommands: { default: 'node -e "console.log(\'# tests 3\\n# pass 3\\n# fail 0\')"' } }
+  config: {
+    scope: ['src'],
+    testCommands: {
+      default: 'node -e "console.log(\'# tests 3\\n# pass 3\\n# fail 0\')"',
+      calc: 'node -e "import(\'./src/calc.js\').then(m => process.exit(m.calculate() === 100 ? 0 : 1))"'
+    }
+  },
+  llmFactory: () => new LLMBridge({ provider: 'mock', env: {} })
 });
 await server.start();
 server.evo.memory.recordExperience({ signature: XSS, rootCause: XSS, winningFix: XSS });
@@ -83,6 +95,20 @@ try {
   const report = await page.textContent('#r-report-output');
   check('ratchet trial promoted via UI', report.includes('PROMOTED TO REPOSITORY'), report.match(/DECISION: .*/)?.[0]);
   await shot(page, '3-ratchet');
+
+  // 3b. Autonomous evolve with the offline mock provider and a live progress log.
+  await page.click('[data-tab="evolve"]');
+  check('evolve tab shows the configured LLM', (await page.textContent('#v-llm')) === 'LLM: mock (offline)');
+  await page.fill('#v-file', 'src/calc.js');
+  await page.fill('#v-instruction', 'calculate must return 100;');
+  await page.selectOption('#v-cmd', 'calc');
+  await page.click('[data-action="run-evolve"]');
+  await page.waitForSelector('#v-log [data-event="done"]', { timeout: 30000 });
+  const evolveStatus = await page.textContent('#v-status');
+  const events = await page.locator('#v-log [data-event]').count();
+  check('evolve commits the candidate and streams progress', evolveStatus === 'COMMITTED' && events >= 5, `status=${evolveStatus}, events=${events}`);
+  check('evolve report is shown', (await page.textContent('#v-report')).includes('PROMOTED TO REPOSITORY'));
+  await shot(page, '3b-evolve');
 
   // 4. History, skills.
   await page.click('[data-tab="history"]');

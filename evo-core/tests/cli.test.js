@@ -107,6 +107,25 @@ describe('EvoCore CLI', () => {
     assert.equal(fs.readFileSync(path.join(repo, 'src/app.js'), 'utf8'), '1\n');
   });
 
+  it('evolves a file with the offline mock provider and validates its options', () => {
+    const repo = createGitRepo({
+      'package.json': '{ "type": "module" }\n',
+      'src/calc.js': 'export function calculate() { return 10; }\n'
+    });
+    const check = 'node -e "import(\'./src/calc.js\').then(m => process.exit(m.calculate() === 100 ? 0 : 1))"';
+
+    assert.equal(run(repo, 'evolve', '--instruction', 'x').code, 1);
+    const badProvider = run(repo, 'evolve', '--file', 'src/calc.js', '--instruction', 'x', '--test', check, '--provider', 'nope');
+    assert.equal(badProvider.code, 1);
+    assert.match(badProvider.stderr, /not supported/);
+
+    const res = run(repo, 'evolve', '--file', 'src/calc.js', '--instruction', 'calculate must return 100;', '--test', check, '--provider', 'mock');
+    assert.equal(res.code, 0, res.stderr);
+    assert.match(res.stdout, /mock \(offline\)/);
+    assert.match(res.stdout, /#1 COMMITTED/);
+    assert.equal(fs.readFileSync(path.join(repo, 'src/calc.js'), 'utf8'), 'export function calculate() { return 100; }\n');
+  });
+
   it('never prints the node:sqlite experimental warning', () => {
     const res = run(createTempDir(), 'status');
     assert.equal(res.code, 0);

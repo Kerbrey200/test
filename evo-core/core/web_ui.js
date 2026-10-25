@@ -108,6 +108,7 @@ function clientApp() {
   var TITLES = {
     dashboard: 'Asosiy Dashboard',
     ratchet: 'Karpathy Ratchet Evolution Studio',
+    evolve: 'Avtonom Evolve (LLM + Ratchet)',
     analyze: 'Kod Tahlili: MQL Auditor va AST',
     memory: 'MUSE Episodik Xotira Bazasi',
     skills: 'AutoSkill Modullar Katalogi',
@@ -236,7 +237,10 @@ function clientApp() {
   async function loadConfig() {
     state.config = await api('/api/config');
     var ids = Object.keys(state.config.testCommands);
-    ['r-cmd', 't-cmd'].forEach(function (id) {
+    var llm = state.config.llm || {};
+    $('v-llm').textContent = llm.ok ? 'LLM: ' + llm.provider : 'LLM sozlanmagan: ' + (llm.error || 'noma‘lum xato');
+    $('v-llm').className = llm.ok ? 'muted' : 'sev-CRITICAL';
+    ['r-cmd', 't-cmd', 'v-cmd'].forEach(function (id) {
       var select = clear($(id));
       ids.forEach(function (cmdId) {
         select.appendChild(el('option', { value: cmdId, text: cmdId + ' — ' + state.config.testCommands[cmdId] }));
@@ -366,6 +370,69 @@ function clientApp() {
     }
   }
 
+  var EVOLVE_EVENTS = {
+    start: function (e) { return 'Boshlandi: ' + e.file + ' (' + e.provider + ', ko‘pi bilan ' + e.maxIterations + ' iteratsiya)'; },
+    generating: function () { return 'LLM nomzod kod yozmoqda...'; },
+    testing: function () { return 'Ratchet sinovi: audit → test → gate...'; },
+    result: function (e) { return 'Natija: ' + e.action + (e.scorecard !== undefined && e.scorecard !== null ? ' (scorecard ' + e.scorecard + ')' : '') + (e.commitHash ? ' — commit ' + e.commitHash : ''); },
+    candidate_rejected: function (e) { return 'Nomzod rad etildi: ' + e.reason; },
+    llm_error: function (e) { return 'LLM xatosi: ' + e.error; },
+    done: function (e) { return (e.success ? 'Muvaffaqiyatli tugadi' : 'Tugadi, natija yo‘q') + ' (' + e.stoppedReason + ', ' + e.iterations + ' iteratsiya)'; }
+  };
+
+  function renderEvolveLog(events) {
+    var list = clear($('v-log'));
+    events.forEach(function (e) {
+      var text = EVOLVE_EVENTS[e.type] ? EVOLVE_EVENTS[e.type](e) : e.type;
+      var cls = e.type === 'result' ? (e.action === 'COMMITTED' ? 'pill-success' : 'pill-danger')
+        : (e.type === 'llm_error' || e.type === 'candidate_rejected' ? 'pill-warning' : 'pill-muted');
+      list.appendChild(el('div', { class: 'issue', 'data-event': e.type }, [
+        el('span', { class: 'status-pill ' + cls, text: e.iteration ? '#' + e.iteration : '•' }),
+        ' ',
+        el('span', { text: text }),
+        el('span', { class: 'muted', style: 'float: right; font-size: 11px;', text: new Date(e.at).toLocaleTimeString() })
+      ]));
+    });
+  }
+
+  async function runEvolve(button) {
+    var panel = $('v-result-panel');
+    panel.classList.remove('hidden');
+    clear($('v-status'));
+    clear($('v-log'));
+    $('v-report').textContent = '';
+    button.disabled = true;
+    try {
+      var body = {
+        file: $('v-file').value.trim(),
+        instruction: $('v-instruction').value.trim(),
+        testCommandId: $('v-cmd').value,
+        maxIterations: Number($('v-iterations').value),
+        domain: $('v-domain').value,
+        signature: $('v-sig').value.trim(),
+        rule: $('v-rule').value.trim(),
+        metricPattern: $('v-metric').value.trim()
+      };
+      var baseline = $('v-baseline').value.trim();
+      if (baseline !== '') body.baselineScore = Number(baseline);
+      var queued = await api('/api/evolve', { method: 'POST', body: body });
+      var job = await waitForJob(queued.jobId, function (j) { renderEvolveLog(j.progress || []); });
+      renderEvolveLog(job.progress || []);
+      if (job.status === 'failed') {
+        $('v-status').appendChild(pill('XATO', 'pill-danger'));
+        $('v-report').textContent = 'Xatolik: ' + job.error;
+      } else {
+        $('v-status').appendChild(job.result.success ? pill('COMMITTED', 'pill-success') : pill(job.result.stoppedReason, 'pill-danger'));
+        $('v-report').textContent = job.result.report || 'Hisobot yo‘q (sinov bajarilmadi).';
+      }
+    } catch (err) {
+      $('v-report').textContent = 'Xatolik: ' + err.message;
+    } finally {
+      button.disabled = false;
+      loadDashboard().catch(function () {});
+    }
+  }
+
   async function runTests(button) {
     var pre = $('terminal-output');
     pre.textContent = 'Testlar navbatga qo‘yilmoqda...';
@@ -437,6 +504,7 @@ function clientApp() {
   var ACTIONS = {
     'refresh': function () { return refreshTab(); },
     'run-step': function (btn) { return runRatchetStep(btn); },
+    'run-evolve': function (btn) { return runEvolve(btn); },
     'run-tests': function (btn) { switchTab('terminal'); return runTests(btn); },
     'audit-mql': function () { return runMqlAudit(); },
     'scan-ast': function () { return runAstScan(); },
@@ -512,6 +580,7 @@ export function getFullControlHTML({ nonce = '', version = '' } = {}) {
     <nav>
       <button type="button" class="nav-btn active" data-tab="dashboard">📊 Asosiy Dashboard</button>
       <button type="button" class="nav-btn" data-tab="ratchet">⚡ Ratchet Evolution</button>
+      <button type="button" class="nav-btn" data-tab="evolve">🤖 Avtonom Evolve</button>
       <button type="button" class="nav-btn" data-tab="analyze">📈 Kod Tahlili (MQL/AST)</button>
       <button type="button" class="nav-btn" data-tab="memory">🧠 MUSE Xotirasi</button>
       <button type="button" class="nav-btn" data-tab="skills">📚 AutoSkill Kutubxonasi</button>
@@ -596,6 +665,45 @@ export function getFullControlHTML({ nonce = '', version = '' } = {}) {
         <div class="panel hidden" id="r-result-panel">
           <div class="panel-title">📋 8-Bo'limli Xolis Dalil Hisoboti <span id="r-result-status"></span></div>
           <pre id="r-report-output"></pre>
+        </div>
+      </div>
+
+      <!-- 2b. AUTONOMOUS EVOLVE -->
+      <div data-view="evolve" class="hidden">
+        <div class="panel">
+          <div class="panel-title">🤖 Avtonom Evolve Sikli</div>
+          <p id="v-llm" class="muted">LLM: ...</p>
+          <p class="muted">LLM fayl uchun nomzod yozadi, ratchet uni tekshiradi; muvaffaqiyatsiz bo'lsa xato LLM'ga qaytariladi va qayta urinadi. Boshlashdan oldin scope'da commit qilinmagan o'zgarish bo'lmasligi kerak; test fayllari o'zgartirilmaydi.</p>
+          <div class="form-row">
+            <div class="form-group"><label for="v-file">Maqsad fayl (scope ichida):</label><input type="text" id="v-file" maxlength="500" placeholder="src/calc.js"></div>
+            <div class="form-group"><label for="v-cmd">Test buyrug'i:</label><select id="v-cmd"></select></div>
+          </div>
+          <div class="form-group"><label for="v-instruction">Ko'rsatma (LLM nima qilishi kerak):</label><textarea id="v-instruction" rows="3" maxlength="4000" placeholder="calculate() 100 qaytarishi kerak"></textarea></div>
+          <div class="form-row">
+            <div class="form-group"><label for="v-iterations">Maksimal iteratsiya (1-10):</label><input type="number" id="v-iterations" min="1" max="10" value="3"></div>
+            <div class="form-group">
+              <label for="v-domain">Domen:</label>
+              <select id="v-domain">
+                <option value="GENERAL">GENERAL</option>
+                <option value="MQL_TRADING">MQL_TRADING</option>
+                <option value="MATH_OPTIMIZE">MATH_OPTIMIZE</option>
+              </select>
+            </div>
+            <div class="form-group"><label for="v-sig">Imzo (ixtiyoriy):</label><input type="text" id="v-sig" maxlength="200"></div>
+          </div>
+          <div class="form-group"><label for="v-rule">Yechim qoidasi (muvaffaqiyatda skill yaratiladi, ixtiyoriy):</label><input type="text" id="v-rule" maxlength="4000"></div>
+          <div class="form-row">
+            <div class="form-group"><label for="v-metric">Metrika regex (ixtiyoriy, 1-guruh son):</label><input type="text" id="v-metric" maxlength="200" placeholder="score=([0-9.]+)"></div>
+            <div class="form-group"><label for="v-baseline">Baseline:</label><input type="number" id="v-baseline" step="any" value="0"></div>
+          </div>
+          <button type="button" class="btn" data-action="run-evolve">🤖 Evolve'ni boshlash</button>
+        </div>
+
+        <div class="panel hidden" id="v-result-panel">
+          <div class="panel-title">📡 Jonli jurnal <span id="v-status"></span></div>
+          <div id="v-log"></div>
+          <div class="panel-title" style="margin-top: 15px;">📋 Oxirgi sinov hisoboti</div>
+          <pre id="v-report"></pre>
         </div>
       </div>
 

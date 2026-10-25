@@ -36,6 +36,9 @@ Buyruqlar:
   trial --test "<buyruq>"        Joriy o'zgarishlar ustida bitta ratchet sinovi
         [--test-id ID] [--hypothesis H] [--title T] [--domain D] [--signature S]
         [--rule R] [--root-cause C] [--code K] [--baseline N] [--timeout MS]
+  evolve --file F --instruction "<ko'rsatma>"  Avtonom LLM sikli (nomzod -> ratchet -> feedback)
+        [--test "<buyruq>" | --test-id ID] [--iterations 3] [--provider mock|openai|anthropic|gemini]
+        [--model M] [--signature S] [--rule R] [--domain D] [--metric "score=([0-9.]+)"] [--baseline N]
   rollback                       Scope ichidagi o'zgarishlarni git stash'ga olish
   reset-breaker                  Circuit breaker'ni qayta tiklash
   dashboard [--out fayl]         Offline HTML hisobot yaratish
@@ -80,7 +83,13 @@ function parse(argv) {
         'root-cause': { type: 'string' },
         code: { type: 'string' },
         baseline: { type: 'string' },
-        timeout: { type: 'string' }
+        timeout: { type: 'string' },
+        file: { type: 'string' },
+        instruction: { type: 'string' },
+        iterations: { type: 'string' },
+        provider: { type: 'string' },
+        model: { type: 'string' },
+        metric: { type: 'string' }
       }
     });
   } catch (err) {
@@ -249,6 +258,61 @@ const commands = {
         console.log();
       });
       return step.success ? 0 : 2;
+    });
+  },
+
+  async evolve({ values }) {
+    if (!values.file) throw new UsageError('Maqsad fayl kerak: --file src/app.js');
+    if (!values.instruction) throw new UsageError('Ko\'rsatma kerak: --instruction "..."');
+    const baseline = values.baseline === undefined ? 0 : Number(values.baseline);
+    if (!Number.isFinite(baseline)) throw new UsageError('--baseline son bo\'lishi kerak.');
+    const iterations = toInt(values.iterations, 'iterations', 3);
+
+    const { LLMBridge } = await import('../core/llm_bridge.js');
+    const { EvolutionLoop } = await import('../core/evolver.js');
+    const llm = new LLMBridge({ provider: values.provider, model: values.model });
+
+    return withEvo(async (evo) => {
+      const describeEvent = (e) => {
+        switch (e.type) {
+          case 'start': return `▶ ${e.file} | ${e.provider} | ko'pi bilan ${e.maxIterations} iteratsiya`;
+          case 'generating': return `  #${e.iteration} LLM nomzod yozmoqda...`;
+          case 'testing': return `  #${e.iteration} ratchet sinovi...`;
+          case 'result': return `  #${e.iteration} ${e.action === 'COMMITTED' ? green(e.action) : red(e.action)}${e.scorecard !== undefined ? ` (scorecard ${e.scorecard})` : ''}${e.commitHash ? ` commit ${e.commitHash}` : ''}`;
+          case 'candidate_rejected': return `  #${e.iteration} ${yellow('nomzod rad etildi')}: ${e.reason}`;
+          case 'llm_error': return `  #${e.iteration} ${yellow('LLM xatosi')}: ${e.error}`;
+          case 'done': return `■ ${e.success ? green('muvaffaqiyatli') : red('natija yo\'q')} (${e.stoppedReason})`;
+          default: return null;
+        }
+      };
+      const loop = new EvolutionLoop(evo, {
+        llm,
+        onProgress: (e) => {
+          if (values.json) return;
+          const line = describeEvent(e);
+          if (line) console.log(line);
+        }
+      });
+      if (!values.json) console.log();
+      const run = await loop.run({
+        file: values.file,
+        instruction: values.instruction,
+        taskTitle: values.title,
+        domain: values.domain || 'GENERAL',
+        signature: values.signature,
+        rule: values.rule || '',
+        rootCause: values['root-cause'] || '',
+        testCommand: values.test,
+        testCommandId: values['test-id'],
+        baselineScore: baseline,
+        metricPattern: values.metric,
+        maxIterations: iterations
+      });
+      output(values.json, run, (r) => {
+        if (r.report) console.log(`\n${r.report}`);
+        console.log();
+      });
+      return run.success ? 0 : 2;
     });
   },
 

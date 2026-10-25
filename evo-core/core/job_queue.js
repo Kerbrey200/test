@@ -6,6 +6,8 @@
 
 import crypto from 'node:crypto';
 
+const MAX_PROGRESS_EVENTS = 500;
+
 export class JobQueue {
   constructor({ maxJobs = 50 } = {}) {
     this.maxJobs = maxJobs;
@@ -17,7 +19,7 @@ export class JobQueue {
   /**
    * Schedules a job and returns its public view immediately.
    * @param {string} kind Short label (e.g. 'ratchet.step')
-   * @param {() => Promise<any>} fn Work to run
+   * @param {(ctx: {progress: (event: object) => void}) => Promise<any>} fn Work to run; may report progress
    */
   enqueue(kind, fn) {
     const job = {
@@ -27,8 +29,13 @@ export class JobQueue {
       createdAt: new Date().toISOString(),
       startedAt: null,
       finishedAt: null,
+      progress: [],
       result: null,
       error: null
+    };
+    const progress = (event) => {
+      job.progress.push(event);
+      if (job.progress.length > MAX_PROGRESS_EVENTS) job.progress.shift();
     };
     this.jobs.set(job.id, job);
     this.prune();
@@ -38,7 +45,7 @@ export class JobQueue {
       job.status = 'running';
       job.startedAt = new Date().toISOString();
       try {
-        job.result = await fn();
+        job.result = await fn({ progress });
         job.status = 'done';
       } catch (err) {
         job.error = err?.message || String(err);
@@ -68,7 +75,7 @@ export class JobQueue {
   }
 
   list() {
-    return [...this.jobs.values()].reverse().map(job => ({ ...JobQueue.view(job), result: undefined }));
+    return [...this.jobs.values()].reverse().map(job => ({ ...JobQueue.view(job), result: undefined, progress: undefined }));
   }
 
   get running() {
@@ -92,6 +99,6 @@ export class JobQueue {
 
   static view(job) {
     const { promise, ...rest } = job;
-    return rest;
+    return { ...rest, progress: [...job.progress] };
   }
 }

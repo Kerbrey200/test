@@ -19,6 +19,8 @@ import { ASTScanner } from './ast_scanner.js';
 import { CommandRunner } from './runner.js';
 import { Gatekeeper } from './gatekeeper.js';
 import { JobQueue } from './job_queue.js';
+import { LLMBridge } from './llm_bridge.js';
+import { EvolutionLoop, EvolveError, metricFromPattern } from './evolver.js';
 import { VERSION } from './version.js';
 import { getFullControlHTML } from './web_ui.js';
 
@@ -64,10 +66,14 @@ export class EvoServer {
    * @param {string} [options.rootDir] Project root
    * @param {string} [options.token] API token; defaults to EVO_TOKEN or a random per-start token
    * @param {object} [options.config] evocore.config.json overrides
+   * @param {() => object} [options.llmFactory] Creates the candidate generator for /api/evolve.
+   *        Defaults to LLMBridge configured from the server's environment (EVO_PROVIDER, ...);
+   *        requests can never choose the provider, endpoint or key.
    */
   constructor(options = {}) {
     this.rootDir = options.rootDir || process.cwd();
     this.evo = new EvoCore({ rootDir: this.rootDir, config: options.config });
+    this.llmFactory = options.llmFactory || (() => new LLMBridge());
     this.port = options.port !== undefined ? options.port : this.evo.config.server.port;
     this.host = options.host || this.evo.config.server.host;
     this.token = options.token || process.env.EVO_TOKEN || crypto.randomBytes(24).toString('base64url');
@@ -222,10 +228,44 @@ export class EvoServer {
     };
   }
 
+  describeLLM() {
+    try {
+      const llm = this.llmFactory();
+      return { ok: true, provider: llm.describe?.() || 'custom' };
+    } catch (err) {
+      return { ok: false, provider: null, error: Gatekeeper.maskSecrets(err.message) };
+    }
+  }
+
+  /**
+   * Validates an evolve request; the target file is checked before anything is queued.
+   */
+  parseEvolveRequest(body) {
+    if (body.testCommand !== undefined) {
+      throw new HttpError(400, 'testCommand is not accepted over HTTP; use testCommandId from evocore.config.json.');
+    }
+    const step = this.parseStepRequest({ ...body, testCommand: undefined });
+    const instruction = optionalString(body, 'instruction', 4000);
+    if (!instruction) throw new HttpError(400, '"instruction" is required.');
+    const file = optionalString(body, 'file', 500);
+    const maxIterations = body.maxIterations === undefined ? 3 : Number(body.maxIterations);
+    if (!Number.isInteger(maxIterations) || maxIterations < 1 || maxIterations > 10) {
+      throw new HttpError(400, '"maxIterations" must be an integer between 1 and 10.');
+    }
+    const metricPattern = optionalString(body, 'metricPattern', 200);
+    try {
+      if (metricPattern) metricFromPattern(metricPattern);
+    } catch (err) {
+      throw new HttpError(400, err.message);
+    }
+    return { ...step, taskTitle: optionalString(body, 'taskTitle', 200), file, instruction, maxIterations, metricPattern };
+  }
+
   publicConfig() {
     const { config } = this.evo;
     return {
       version: VERSION,
+      llm: this.describeLLM(),
       scope: config.scope,
       exclude: config.exclude,
       testCommands: Object.fromEntries(Object.entries(config.testCommands).map(([id, cmd]) => [id, Gatekeeper.maskSecrets(cmd)])),
@@ -316,6 +356,29 @@ export class EvoServer {
     if (pathname === '/api/ratchet/step') {
       const request = this.parseStepRequest(body);
       const job = this.queue.enqueue('ratchet.step', () => this.evo.executeEvolutionStep(request));
+      return this.sendJson(res, 202, { jobId: job.id, status: job.status });
+    }
+
+    // Autonomous evolve loop: queued; progress events are exposed on the job.
+    if (pathname === '/api/evolve') {
+      const request = this.parseEvolveRequest(body);
+      let llm;
+      try {
+        llm = this.llmFactory();
+      } catch (err) {
+        throw new HttpError(400, `LLM is not configured: ${Gatekeeper.maskSecrets(err.message)}`);
+      }
+      const loop = new EvolutionLoop(this.evo, { llm });
+      try {
+        loop.resolveTarget(request.file);
+      } catch (err) {
+        if (err instanceof EvolveError) throw new HttpError(400, err.message);
+        throw err;
+      }
+      const job = this.queue.enqueue('evolve', ({ progress }) => {
+        loop.onProgress = progress;
+        return loop.run(request);
+      });
       return this.sendJson(res, 202, { jobId: job.id, status: job.status });
     }
 
