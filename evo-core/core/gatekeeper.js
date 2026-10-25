@@ -6,6 +6,9 @@
 
 export const REDACTED = '[REDACTED_SECRET]';
 
+// Lessons and skills below this utility are archived (kept, but not injected).
+export const ACTIVE_UTILITY_THRESHOLD = 0.5;
+
 // High-confidence vendor token formats. These are always secrets.
 const VENDOR_PATTERNS = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,

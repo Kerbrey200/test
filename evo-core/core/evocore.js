@@ -38,6 +38,8 @@ export class EvoCore {
     this.memory = new MUSEMemory(path.join(this.storageDir, 'memory.sqlite'));
     this.skills = new AutoSkillDistiller(this.skillsDir);
     this.ratchet = new RatchetEngine({
+      // Circuit breaker survives restarts and is shared by the CLI and the web server.
+      stateStore: { get: key => this.memory.getState(key), set: (key, value) => this.memory.setState(key, value) },
       repoDir: this.rootDir,
       scope: this.config.scope,
       // Engine data must never be evaluated, committed or rolled back as a candidate change.
@@ -178,7 +180,7 @@ export class EvoCore {
         winningFix: rule || ratchetResult.hypothesis
       });
 
-      // 3. Lifelong Evolution: Distill into modular Skill.md
+      // 3. Lifelong Evolution: Distill into modular Skill.md (or just refresh its utility)
       if (rule) {
         autoSkillResult = this.skills.distillSkill({
           name: cleanSignature,
@@ -189,11 +191,32 @@ export class EvoCore {
           verifiedCode,
           utilityScore: museResult.utilityScore ?? 1.0
         });
+      } else {
+        autoSkillResult = this.syncSkillUtility(cleanSignature, museResult.utilityScore);
       }
     } else if (REGRESSION_ACTIONS.has(ratchetResult.action) && cleanSignature) {
       // Only a hypothesis that was actually tried and failed is a regression.
       const utility = this.memory.reportRegression(cleanSignature);
-      museResult = { signature: cleanSignature, action: 'REGRESSION_RECORDED', utilityScore: utility };
+      if (utility !== null) {
+        museResult = { signature: cleanSignature, action: 'REGRESSION_RECORDED', utilityScore: utility };
+        autoSkillResult = this.syncSkillUtility(cleanSignature, utility);
+      }
+    }
+
+    // Every trial that touched the workspace is persisted as a trajectory.
+    if (ratchetResult.action !== TrialAction.NO_CHANGES && ratchetResult.action !== TrialAction.CIRCUIT_OPEN) {
+      this.memory.recordTrajectory({
+        signature: cleanSignature,
+        domain,
+        hypothesis: ratchetResult.hypothesis,
+        action: ratchetResult.action,
+        exitCode: ratchetResult.exitCode,
+        score: ratchetResult.score,
+        durationMs: ratchetResult.durationMs,
+        diff: ratchetResult.diff,
+        stdout: ratchetResult.stdout,
+        stderr: ratchetResult.stderr
+      });
     }
 
     // 4. Scorecard (already computed by the gate when tests passed).
@@ -221,17 +244,33 @@ export class EvoCore {
   }
 
   /**
-   * System health and status overview.
+   * Keeps a distilled skill's utility in line with its MUSE experience.
+   */
+  syncSkillUtility(signature, utilityScore) {
+    const synced = this.skills.updateUtility(signature, utilityScore);
+    return synced ? { ...synced, action: synced.active ? 'UTILITY_UPDATED' : 'ARCHIVED' } : {};
+  }
+
+  /**
+   * Closes the circuit breaker after a human has reviewed the failures.
+   */
+  resetCircuitBreaker() {
+    return this.ratchet.resetCircuitBreaker();
+  }
+
+  /**
+   * System health and status overview (exact counts, persisted across restarts).
    */
   getStatus() {
-    const activeSkills = this.skills.getActiveSkills();
-    const experiences = this.memory.findRelevantExperiences('', null);
+    const skills = this.skills.getAllSkills();
 
     return {
       engine: `EvoCore Tri-Core Evolution Engine v${VERSION}`,
-      activeSkillsCount: activeSkills.length,
-      experiencesCount: experiences.length,
-      historyCount: this.ratchet.executionHistory.length,
+      activeSkillsCount: skills.filter(s => s.active).length,
+      totalSkillsCount: skills.length,
+      experiencesCount: this.memory.countExperiences(),
+      activeExperiencesCount: this.memory.countExperiences({ activeOnly: true }),
+      historyCount: this.memory.countTrajectories(),
       circuitBreakerFailures: this.ratchet.consecutiveFailures,
       maxConsecutiveFailures: this.ratchet.maxConsecutiveFailures,
       circuitOpen: this.ratchet.circuitOpen
