@@ -3,6 +3,14 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { LLMBridge, LLMError } from '../core/llm_bridge.js';
 
+// The Claude adapter needs the optional SDK; without `npm install` its tests are skipped, not failed.
+let sdkMissing = false;
+try {
+  await import('@anthropic-ai/sdk');
+} catch {
+  sdkMissing = '@anthropic-ai/sdk is not installed (run npm install)';
+}
+
 // Local fake of an OpenAI-compatible /chat/completions endpoint.
 function startFakeApi(handler) {
   return new Promise((resolve) => {
@@ -182,7 +190,7 @@ describe('EvoCore LLM Bridge: Anthropic (official SDK) and Gemini adapters', () 
     provider: 'anthropic', apiKey: 'sk-ant-test-key-0000000000000000', baseUrl: claude.url.replace(/\/v1$/, ''), env: {}, retryBaseMs: 1, ...extra
   });
 
-  it('calls Claude through the SDK with streaming, effort, fallbacks and no sampling parameters', async () => {
+  it('calls Claude through the SDK with streaming, effort, fallbacks and no sampling parameters', { skip: sdkMissing }, async () => {
     const code = await claudeBridge().generateCandidate({ taskTitle: 'bump', targetFileContent: 'export const v = 1;' });
     assert.equal(code, 'export const v = 2;');
 
@@ -200,7 +208,7 @@ describe('EvoCore LLM Bridge: Anthropic (official SDK) and Gemini adapters', () 
     assert.match(req.body.system, /EvoCore Autonomous Mutation Engine/);
   });
 
-  it('omits fallbacks on models without them and effort when disabled', async () => {
+  it('omits fallbacks on models without them and effort when disabled', { skip: sdkMissing }, async () => {
     await claudeBridge({ model: 'claude-haiku-5-5', effort: 'none' }).callApi('s', 'u');
     const req = claude.requests.at(-1);
     assert.equal(req.body.fallbacks, undefined);
@@ -208,14 +216,14 @@ describe('EvoCore LLM Bridge: Anthropic (official SDK) and Gemini adapters', () 
     assert.equal(req.headers['anthropic-beta'], undefined);
   });
 
-  it('turns refusals, truncation and API errors into clear LLMErrors', async () => {
+  it('turns refusals, truncation and API errors into clear LLMErrors', { skip: sdkMissing }, async () => {
     await assert.rejects(() => claudeBridge().callApi('s', 'REFUSE'), /declined the request \(category: cyber\)/);
     await assert.rejects(() => claudeBridge().callApi('s', 'TRUNCATE'), /max_tokens/);
     await assert.rejects(() => claudeBridge({ maxRetries: 0 }).callApi('s', 'BAD_REQUEST'),
       (err) => err instanceof LLMError && err.status === 400 && /bad field/.test(err.message));
   });
 
-  it('lets the SDK retry overloaded (529) responses', async () => {
+  it('lets the SDK retry overloaded (529) responses', { skip: sdkMissing }, async () => {
     const before = claude.requests.length;
     const text = await claudeBridge().callApi('s', 'OVERLOADED');
     assert.match(text, /export const v = 2/);
