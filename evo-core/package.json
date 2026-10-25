@@ -1,0 +1,30 @@
+{
+  "name": "evo-core",
+  "version": "1.0.0",
+  "description": "Tri-Core Autonomous Evolution Engine: Karpathy Ratchet + MUSE Memory + AutoSkill Distiller",
+  "type": "module",
+  "main": "core/index.js",
+  "bin": {
+    "evocore": "./bin/evocore.js",
+    "evocore-ui": "./bin/serve.js"
+  },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 tests/**/*.test.js",
+    "test:watch": "node --test --watch tests/**/*.test.js",
+    "start": "node ./bin/evocore.js",
+    "serve": "node ./bin/serve.js",
+    "ui": "node ./bin/serve.js",
+    "status": "node ./bin/evocore.js status",
+    "dashboard": "node ./bin/evocore.js dashboard"
+  },
+  "keywords": [
+    "autonomous-agent",
+    "evolution-engine",
+    "karpathy-autoresearch",
+    "muse-memory",
+    "autoskill",
+    "zero-fat"
+  ],
+  "author": "Alauddin Universal Engineer",
+  "license": "Apache-2.0"
+}

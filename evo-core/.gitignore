@@ -1,0 +1,6 @@
+node_modules/
+*.sqlite-journal
+storage/test_scratch/
+storage/test_muse.sqlite
+storage/test_skills/
+.env
