@@ -1,18 +1,17 @@
-import { describe, it } from 'node:test';
+import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { MUSEMemory } from '../core/muse_memory.js';
 import { AutoSkillDistiller } from '../core/autoskill_distiller.js';
+import { createTempDir, cleanupTempDirs } from './helpers/fixtures.js';
 
 describe('EvoCore Dual Tier: MUSE Memory & AutoSkill Distiller', () => {
 
-  const testDb = path.resolve('storage', 'test_muse.sqlite');
-  const testSkillsDir = path.resolve('storage', 'test_skills');
-
-  // Clean before run
-  if (fs.existsSync(testDb)) fs.unlinkSync(testDb);
-  if (fs.existsSync(testSkillsDir)) fs.rmSync(testSkillsDir, { recursive: true, force: true });
+  const tempDir = createTempDir();
+  const testDb = path.join(tempDir, 'test_muse.sqlite');
+  const testSkillsDir = path.join(tempDir, 'skills');
+  after(cleanupTempDirs);
 
   it('MUSE records new experience with initial utility score 1.0', () => {
     const memory = new MUSEMemory(testDb);

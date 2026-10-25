@@ -1,15 +1,14 @@
-import { describe, it } from 'node:test';
+import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ASTScanner } from '../core/ast_scanner.js';
+import { createTempDir, cleanupTempDirs } from './helpers/fixtures.js';
 
 describe('EvoCore AST Scanner: Multi-Language Structure Extractor', () => {
 
-  const tempDir = path.resolve('storage', 'test_scratch');
-  if (!fs.existsSync(tempDir)) {
-    fs.mkdirSync(tempDir, { recursive: true });
-  }
+  const tempDir = createTempDir();
+  after(cleanupTempDirs);
 
   it('scans JavaScript and extracts functions, classes, and exports', () => {
     const jsPath = path.join(tempDir, 'sample.js');

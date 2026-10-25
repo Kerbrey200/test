@@ -1,10 +1,12 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { EvoServer } from '../core/server.js';
+import { createGitRepo, cleanupTempDirs } from './helpers/fixtures.js';
 
 describe('EvoCore Native Web Server & REST API Tier', () => {
 
-  const server = new EvoServer({ port: 0, rootDir: process.cwd() });
+  // The rollback endpoint mutates git state, so the server runs against a throwaway repo.
+  const server = new EvoServer({ port: 0, rootDir: createGitRepo() });
   let baseUrl = '';
 
   before(async () => {
@@ -13,6 +15,7 @@ describe('EvoCore Native Web Server & REST API Tier', () => {
 
   after(async () => {
     await server.stop();
+    cleanupTempDirs();
   });
 
   it('starts server and responds to GET / with full control HTML', async () => {

@@ -1,12 +1,15 @@
-import { describe, it } from 'node:test';
+import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { LLMBridge } from '../core/llm_bridge.js';
 import { DashboardGenerator } from '../core/dashboard_generator.js';
 import { EvoCore } from '../core/evocore.js';
+import { createTempDir, cleanupTempDirs } from './helpers/fixtures.js';
 
 describe('EvoCore LLM Bridge & Visual Dashboard Tier', () => {
+
+  after(cleanupTempDirs);
 
   it('LLMBridge generates candidate patch in deterministic offline mock mode', async () => {
     const bridge = new LLMBridge({ provider: 'mock' });
@@ -21,8 +24,9 @@ describe('EvoCore LLM Bridge & Visual Dashboard Tier', () => {
   });
 
   it('DashboardGenerator creates valid standalone HTML visual report', () => {
-    const evo = new EvoCore({ rootDir: process.cwd() });
-    const outPath = path.resolve('storage', 'test_dashboard.html');
+    const rootDir = createTempDir();
+    const evo = new EvoCore({ rootDir });
+    const outPath = path.join(rootDir, 'dashboard.html');
 
     const created = DashboardGenerator.generateHTML(evo, outPath);
     assert.strictEqual(created, outPath);

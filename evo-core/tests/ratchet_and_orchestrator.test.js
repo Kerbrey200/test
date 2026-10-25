@@ -1,22 +1,17 @@
-import { describe, it, before } from 'node:test';
+import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
 import { RatchetEngine } from '../core/ratchet_engine.js';
 import { EvoCore } from '../core/evocore.js';
+import { createGitRepo, cleanupTempDirs } from './helpers/fixtures.js';
 
 describe('EvoCore Integrated Tier: Ratchet Engine & Orchestrator', () => {
 
-  const repoDir = process.cwd();
-  const testTargetFile = path.join(repoDir, 'storage', 'target_code.js');
-
-  before(() => {
-    fs.writeFileSync(testTargetFile, 'export function calculate() { return 10; }\n', 'utf8');
-    try {
-      execSync('git add -A && git commit -m "chore: setup test target"', { cwd: repoDir, stdio: 'ignore' });
-    } catch {}
-  });
+  // Isolated throwaway repository: the suite never commits into the project itself.
+  const repoDir = createGitRepo({ 'src/target_code.js': 'export function calculate() { return 10; }\n' });
+  const testTargetFile = path.join(repoDir, 'src', 'target_code.js');
+  after(cleanupTempDirs);
 
   it('RatchetEngine rolls back on failing test and preserves clean state', () => {
     const ratchet = new RatchetEngine({ repoDir });

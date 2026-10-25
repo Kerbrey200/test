@@ -8,9 +8,13 @@
     "evocore": "./bin/evocore.js",
     "evocore-ui": "./bin/serve.js"
   },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
-    "test": "node --test --test-concurrency=1 tests/**/*.test.js",
-    "test:watch": "node --test --watch tests/**/*.test.js",
+    "test": "node --test \"tests/**/*.test.js\"",
+    "test:watch": "node --test --watch \"tests/**/*.test.js\"",
+    "test:coverage": "node --test --experimental-test-coverage \"tests/**/*.test.js\"",
     "start": "node ./bin/evocore.js",
     "serve": "node ./bin/serve.js",
     "ui": "node ./bin/serve.js",

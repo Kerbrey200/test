@@ -1,6 +1,6 @@
 node_modules/
-*.sqlite-journal
-storage/test_scratch/
-storage/test_muse.sqlite
-storage/test_skills/
+coverage/
 .env
+
+# Runtime data written by EvoCore (SQLite memory, dashboards, rollback backups)
+storage/
