@@ -76,3 +76,90 @@ def execute_order(symbol, volume):
   });
 
 });
+
+describe('EvoCore AST Scanner: accuracy (regression: O4)', () => {
+
+  it('finds async defs and return-annotated Python functions, ignoring comments and strings', () => {
+    const res = ASTScanner.scanSource([
+      'import os, sys as system',
+      'from .local import helper',
+      '',
+      'class Strategy(Base, metaclass=Meta):',
+      '    async def fetch(self, url: str) -> dict:',
+      '        return {}',
+      '',
+      'def typed(a: int,',
+      '          b: tuple[int, int] = (1, 2)) -> int:',
+      '    return a',
+      '# def commented_out(x):',
+      'DOC = """',
+      'def inside_docstring(y):',
+      '"""'
+    ].join('\n'), '.py');
+
+    assert.deepEqual(res.functions.map(f => f.name), ['fetch', 'typed']);
+    assert.equal(res.functions[0].async, true);
+    assert.equal(res.functions[0].line, 5);
+    assert.deepEqual(res.functions[1].params, ['a: int', 'b: tuple[int, int] = (1, 2)']);
+    assert.deepEqual(res.classes, [{ name: 'Strategy', extends: 'Base', line: 4 }]);
+    assert.deepEqual(res.imports, ['.local', 'os', 'sys']);
+  });
+
+  it('handles arrow functions without parentheses, generators, TS types and ignores ghosts', () => {
+    const res = ASTScanner.scanSource([
+      '// function ghost(a) {}',
+      'const s = "function fake() {}";',
+      'const sq = x => x * x;',
+      'export const load = async (id: string): Promise<User> => fetchUser(id);',
+      'const notAFunction = (a + b) * 2;',
+      'export default async function* stream(source) { yield* source; }',
+      'export class Repo<T> extends Base {',
+      '  async find<K>(key: K, opts: Map<string, number>): Promise<T> {',
+      '    if (key) { return null; }',
+      '  }',
+      '  #secret() {}',
+      '}',
+      "import { a } from './a.js';",
+      "const lazy = await import('./lazy.js');",
+      "const cjs = require('cjs-module');",
+      "export { sq, notAFunction as alias };"
+    ].join('\n'), '.ts');
+
+    const names = res.functions.map(f => f.name);
+    assert.deepEqual(names, ['sq', 'load', 'stream', 'find', '#secret']);
+    assert.deepEqual(res.functions.find(f => f.name === 'find').params, ['key: K', 'opts: Map<string, number>']);
+    assert.deepEqual(res.classes, [{ name: 'Repo', extends: 'Base', line: 7 }]);
+    assert.deepEqual(res.imports, ['./a.js', './lazy.js', 'cjs-module']);
+    assert.deepEqual(res.exports, ['load', 'stream', 'Repo', 'sq', 'alias']);
+  });
+
+  it('reads MQL #include, class inheritance and multi-line signatures with line numbers', () => {
+    const res = ASTScanner.scanSource([
+      '#include <Trade\\Trade.mqh>',
+      'class CSignal : public CExpertSignal {',
+      '};',
+      'int OnCalculate(const int rates_total,',
+      '                const int prev_calculated,',
+      '                const double &price[])',
+      '  {',
+      '   if (rates_total < 2) return(0);',
+      '   return(rates_total);',
+      '  }',
+      'void CSignal::Refresh() const {',
+      '}'
+    ].join('\n'), '.mq5');
+
+    assert.deepEqual(res.imports, ['Trade\\Trade.mqh']);
+    assert.deepEqual(res.classes, [{ name: 'CSignal', extends: 'CExpertSignal', line: 2 }]);
+    assert.deepEqual(res.functions.map(f => [f.name, f.line]), [['OnCalculate', 4], ['CSignal::Refresh', 11]]);
+    assert.equal(res.functions[0].params.length, 3);
+  });
+
+  it('rejects missing files and directories with clear errors', () => {
+    const dir = createTempDir();
+    assert.throws(() => ASTScanner.scanFile(path.join(dir, 'missing.js')), /File not found/);
+    assert.throws(() => ASTScanner.scanFile(dir), /Not a file/);
+    cleanupTempDirs();
+  });
+
+});
