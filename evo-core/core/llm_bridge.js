@@ -1,18 +1,62 @@
 /**
- * EVO-CORE MULTI-MODEL LLM BRIDGE
- * Zero-Fat native HTTP client supporting OpenAI-compatible APIs (DeepSeek, OpenRouter, Ollama),
- * Anthropic, Google Gemini, and deterministic Offline/Mock mode.
+ * EVO-CORE LLM BRIDGE
+ * Zero-Fat native HTTP client for OpenAI-compatible chat-completions APIs
+ * (OpenAI, DeepSeek, OpenRouter, Ollama, LM Studio, vLLM, ...) plus a deterministic
+ * offline mock mode. Other provider protocols are rejected explicitly instead of being
+ * sent in the wrong format.
  */
 
 import { Gatekeeper } from './gatekeeper.js';
 
+export const SUPPORTED_PROVIDERS = Object.freeze(['mock', 'openai']);
+const RETRYABLE_STATUS = new Set([408, 409, 429, 500, 502, 503, 504]);
+
+export class LLMError extends Error {
+  constructor(message, { status = null, retryable = false } = {}) {
+    super(message);
+    this.status = status;
+    this.retryable = retryable;
+  }
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Parses a Retry-After header (seconds or HTTP date) into milliseconds.
+ */
+function retryAfterMs(header) {
+  if (!header) return null;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const date = Date.parse(header);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : null;
+}
+
 export class LLMBridge {
+  /**
+   * @param {object} [options]
+   * @param {'mock'|'openai'} [options.provider] Defaults to EVO_PROVIDER or 'mock'
+   * @param {string} [options.apiKey] Optional for local servers such as Ollama
+   * @param {string} [options.baseUrl] OpenAI-compatible base URL (…/v1)
+   * @param {string} [options.model]
+   * @param {number} [options.timeoutMs=30000] Per attempt
+   * @param {number} [options.maxRetries=2] Retries for 408/409/429/5xx and network errors
+   */
   constructor(options = {}) {
-    this.provider = options.provider || process.env.EVO_PROVIDER || 'mock';
-    this.apiKey = options.apiKey || process.env.EVO_API_KEY || '';
+    this.provider = String(options.provider || process.env.EVO_PROVIDER || 'mock').toLowerCase();
+    if (!SUPPORTED_PROVIDERS.includes(this.provider)) {
+      throw new LLMError(
+        `LLM provider "${this.provider}" is not supported. Use "openai" with any OpenAI-compatible endpoint (EVO_BASE_URL) or "mock".`
+      );
+    }
+    this.apiKey = options.apiKey ?? process.env.EVO_API_KEY ?? '';
     this.baseUrl = options.baseUrl || process.env.EVO_BASE_URL || 'https://api.openai.com/v1';
     this.model = options.model || process.env.EVO_MODEL || 'gpt-4o-mini';
     this.timeoutMs = options.timeoutMs || 30000;
+    this.maxRetries = options.maxRetries ?? 2;
+    this.retryBaseMs = options.retryBaseMs ?? 500;
   }
 
   /**
@@ -26,7 +70,7 @@ export class LLMBridge {
     previousErrors = [],
     instruction = 'Optimize or fix the code to pass all test requirements.'
   }) {
-    if (this.provider === 'mock' || !this.apiKey) {
+    if (this.provider === 'mock') {
       // Offline / Deterministic Mock Mode
       return this.generateMockCandidate(targetFileContent, instruction);
     }
@@ -37,7 +81,7 @@ export class LLMBridge {
       'RULES:',
       '1. Follow all active skills and learned invariants strictly.',
       '2. Do not delete assertions or tests.',
-      '3. Output ONLY the complete revised code inside a ```code ... ``` block or raw text.',
+      '3. Output ONLY the complete revised code inside a single fenced code block.',
       '',
       'ACTIVE SKILLS:',
       ...activeSkills.map(s => `--- Skill: ${s.name} (v${s.version}) ---\n${s.body}`),
@@ -74,42 +118,62 @@ export class LLMBridge {
   }
 
   /**
-   * Native fetch call to OpenAI-compatible endpoint.
+   * One chat-completions request with timeout; retries transient failures with
+   * exponential backoff, honouring Retry-After.
    */
   async callApi(systemPrompt, userPrompt) {
     const endpoint = `${this.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+    const headers = { 'Content-Type': 'application/json' };
+    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
+    const body = JSON.stringify({
+      model: this.model,
+      messages: [
+        { role: 'system', content: Gatekeeper.maskSecrets(systemPrompt) },
+        { role: 'user', content: Gatekeeper.maskSecrets(userPrompt) }
+      ],
+      temperature: 0.2
+    });
 
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.requestOnce(endpoint, headers, body);
+      } catch (err) {
+        if (!err.retryable || attempt >= this.maxRetries) throw err;
+        await sleep(err.retryAfterMs ?? this.retryBaseMs * 2 ** attempt);
+      }
+    }
+  }
+
+  async requestOnce(endpoint, headers, body) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
+    let response;
     try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`
-        },
-        body: JSON.stringify({
-          model: this.model,
-          messages: [
-            { role: 'system', content: Gatekeeper.maskSecrets(systemPrompt) },
-            { role: 'user', content: Gatekeeper.maskSecrets(userPrompt) }
-          ],
-          temperature: 0.2
-        }),
-        signal: controller.signal
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`LLM API returned status ${response.status}: ${errorText}`);
-      }
-
-      const data = await response.json();
-      return data.choices?.[0]?.message?.content || '';
+      response = await fetch(endpoint, { method: 'POST', headers, body, signal: controller.signal });
+    } catch (err) {
+      const reason = err.name === 'AbortError' ? `timed out after ${this.timeoutMs} ms` : err.message;
+      throw new LLMError(`LLM request failed: ${reason}`, { retryable: true });
     } finally {
       clearTimeout(timer);
     }
+
+    if (!response.ok) {
+      const errorText = Gatekeeper.maskSecrets((await response.text()).slice(0, 2000));
+      const error = new LLMError(`LLM API returned status ${response.status}: ${errorText}`, {
+        status: response.status,
+        retryable: RETRYABLE_STATUS.has(response.status)
+      });
+      error.retryAfterMs = retryAfterMs(response.headers.get('retry-after'));
+      throw error;
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+    if (typeof content !== 'string') {
+      throw new LLMError('LLM API response has no choices[0].message.content.');
+    }
+    return content;
   }
 
   /**
@@ -118,7 +182,7 @@ export class LLMBridge {
   extractCode(response, fallbackCode) {
     if (!response || typeof response !== 'string') return fallbackCode;
 
-    const fenceMatch = response.match(/```(?:[a-zA-Z0-9_\-]+)?\s*\n([\s\S]*?)\n```/);
+    const fenceMatch = response.match(/```(?:[a-zA-Z0-9_\-+.]+)?[ \t]*\r?\n([\s\S]*?)\r?\n```/);
     if (fenceMatch) {
       return fenceMatch[1].trim();
     }

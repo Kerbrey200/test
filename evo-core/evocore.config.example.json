@@ -1,0 +1,18 @@
+{
+  "scope": ["src", "tests"],
+  "exclude": ["node_modules", "dist"],
+  "testCommands": {
+    "default": "npm test",
+    "unit": "node --test tests/unit"
+  },
+  "timeoutMs": 120000,
+  "maxOutputBytes": 1048576,
+  "maxConsecutiveFailures": 3,
+  "strictImprovement": false,
+  "maxDiffLines": 800,
+  "promotionThreshold": 75,
+  "server": {
+    "host": "127.0.0.1",
+    "port": 3777
+  }
+}

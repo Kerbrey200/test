@@ -53,6 +53,23 @@ describe('EvoCore Orchestrator x Memory integration', () => {
     evo.close();
   });
 
+  it('prepares task context from AST, active skills and prior experiences', () => {
+    const rootDir = makeRepo();
+    const evo = new EvoCore({ rootDir });
+    evo.memory.recordExperience({ domain: 'MQL_TRADING', signature: 'SERIES', rootCause: 'reversed buffers', winningFix: 'ArraySetAsSeries' });
+    evo.skills.distillSkill({ name: 'SERIES', domain: 'MQL_TRADING', rule: 'Set series' });
+    writeFiles(rootDir, { 'ea.mq5': 'int OnInit() {\n  return(INIT_SUCCEEDED);\n}\n' });
+
+    const ctx = evo.prepareTaskContext({ filePath: `${rootDir}/ea.mq5`, domain: 'MQL_TRADING', keyword: 'Series' });
+    assert.deepEqual(ctx.ast.functions.map(f => f.name), ['OnInit']);
+    assert.equal(ctx.skillsCount, 1);
+    assert.equal(ctx.experiencesCount, 1);
+
+    const missing = evo.prepareTaskContext({ filePath: `${rootDir}/missing.js` });
+    assert.match(missing.ast.error, /File not found/);
+    evo.close();
+  });
+
   it('reports exact status counts and persisted trial history (regression: O1)', async () => {
     const rootDir = makeRepo();
     const evo = new EvoCore({ rootDir, config: { scope: ['src'] } });
